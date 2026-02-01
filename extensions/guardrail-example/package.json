@@ -1,0 +1,14 @@
+{
+  "name": "@openclaw/guardrail-example",
+  "version": "2026.1.30",
+  "description": "Example guardrail plugin using keyword matching",
+  "type": "module",
+  "devDependencies": {
+    "openclaw": "workspace:*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

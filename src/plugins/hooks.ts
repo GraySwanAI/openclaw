@@ -7,18 +7,28 @@
 
 import type { PluginRegistry } from "./registry.js";
 import type {
+  GuardrailAction,
+  GuardrailApprovalContext,
+  GuardrailInput,
+  GuardrailOutput,
+  GuardrailStage,
+  GuardrailToolCall,
   PluginHookAfterCompactionEvent,
+  PluginHookAfterLlmCallEvent,
   PluginHookAfterToolCallEvent,
   PluginHookAgentContext,
   PluginHookAgentEndEvent,
   PluginHookBeforeAgentStartEvent,
   PluginHookBeforeAgentStartResult,
   PluginHookBeforeCompactionEvent,
+  PluginHookBeforeLlmCallEvent,
   PluginHookBeforeToolCallEvent,
   PluginHookBeforeToolCallResult,
   PluginHookGatewayContext,
   PluginHookGatewayStartEvent,
   PluginHookGatewayStopEvent,
+  PluginHookLlmCallResult,
+  PluginHookLlmContext,
   PluginHookMessageContext,
   PluginHookMessageReceivedEvent,
   PluginHookMessageSendingEvent,
@@ -61,6 +71,17 @@ export type {
   PluginHookGatewayContext,
   PluginHookGatewayStartEvent,
   PluginHookGatewayStopEvent,
+  // Unified guardrail types
+  GuardrailAction,
+  GuardrailApprovalContext,
+  GuardrailInput,
+  GuardrailOutput,
+  GuardrailStage,
+  GuardrailToolCall,
+  PluginHookLlmContext,
+  PluginHookBeforeLlmCallEvent,
+  PluginHookAfterLlmCallEvent,
+  PluginHookLlmCallResult,
 };
 
 export type HookRunnerLogger = {
@@ -422,6 +443,80 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
   }
 
   // =========================================================================
+  // LLM Boundary Hooks (Unified Guardrail Model)
+  // =========================================================================
+
+  /**
+   * Merge two GuardrailOutput results.
+   * Priority order for action: block > approval > log > allow
+   */
+  function mergeGuardrailOutputs(
+    acc: PluginHookLlmCallResult | undefined,
+    next: PluginHookLlmCallResult,
+  ): PluginHookLlmCallResult {
+    // Action priority: block > approval > log > allow
+    const actionPriority: Record<GuardrailAction, number> = {
+      block: 3,
+      approval: 2,
+      log: 1,
+      allow: 0,
+    };
+
+    const accPriority = acc ? actionPriority[acc.action] : -1;
+    const nextPriority = actionPriority[next.action];
+
+    // Use the higher priority action
+    const useNext = nextPriority > accPriority;
+    const action = useNext ? next.action : (acc?.action ?? next.action);
+
+    return {
+      action,
+      // Use next's modifications if it has higher priority, otherwise keep accumulated
+      messages: useNext ? (next.messages ?? acc?.messages) : (acc?.messages ?? next.messages),
+      prompt: useNext ? (next.prompt ?? acc?.prompt) : (acc?.prompt ?? next.prompt),
+      reason: useNext ? (next.reason ?? acc?.reason) : (acc?.reason ?? next.reason),
+      details: useNext ? (next.details ?? acc?.details) : (acc?.details ?? next.details),
+      approvalContext: useNext
+        ? (next.approvalContext ?? acc?.approvalContext)
+        : (acc?.approvalContext ?? next.approvalContext),
+    };
+  }
+
+  /**
+   * Run before_llm_call hook.
+   * Allows plugins to inspect, modify, or take action on prompts before LLM invocation.
+   * Runs sequentially, merging GuardrailOutput from all handlers.
+   */
+  async function runBeforeLlmCall(
+    event: PluginHookBeforeLlmCallEvent,
+    ctx: PluginHookLlmContext,
+  ): Promise<PluginHookLlmCallResult | undefined> {
+    return runModifyingHook<"before_llm_call", PluginHookLlmCallResult>(
+      "before_llm_call",
+      event,
+      ctx,
+      mergeGuardrailOutputs,
+    );
+  }
+
+  /**
+   * Run after_llm_call hook.
+   * Allows plugins to inspect, modify, or take action on LLM responses.
+   * Runs sequentially, merging GuardrailOutput from all handlers.
+   */
+  async function runAfterLlmCall(
+    event: PluginHookAfterLlmCallEvent,
+    ctx: PluginHookLlmContext,
+  ): Promise<PluginHookLlmCallResult | undefined> {
+    return runModifyingHook<"after_llm_call", PluginHookLlmCallResult>(
+      "after_llm_call",
+      event,
+      ctx,
+      mergeGuardrailOutputs,
+    );
+  }
+
+  // =========================================================================
   // Utility
   // =========================================================================
 
@@ -459,6 +554,9 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
     // Gateway hooks
     runGatewayStart,
     runGatewayStop,
+    // LLM boundary hooks
+    runBeforeLlmCall,
+    runAfterLlmCall,
     // Utility
     hasHooks,
     getHookCount,

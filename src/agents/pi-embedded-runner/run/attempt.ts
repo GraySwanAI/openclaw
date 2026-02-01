@@ -755,6 +755,12 @@ export async function runEmbeddedAttempt(
           );
         }
 
+        // Track message count before LLM call for after_llm_call hook
+        // Declared outside try block so after_llm_call hook can access them
+        let previousMessageCount = activeSession.messages.length;
+        // Estimate turn number from assistant messages in history
+        let turnCount = activeSession.messages.filter((m) => m.role === "assistant").length + 1;
+
         try {
           // Detect and load images referenced in the prompt for vision-capable models.
           // This eliminates the need for an explicit "view" tool call by injecting
@@ -799,6 +805,107 @@ export async function runEmbeddedAttempt(
             });
           }
 
+          // Update message count just before LLM call (after any image mutations)
+          previousMessageCount = activeSession.messages.length;
+          turnCount = activeSession.messages.filter((m) => m.role === "assistant").length + 1;
+
+          // Run before_llm_call hooks to allow plugins to inspect/modify/block prompts
+          if (hookRunner?.hasHooks("before_llm_call")) {
+            try {
+              const beforeLlmResult = await hookRunner.runBeforeLlmCall(
+                {
+                  prompt: effectivePrompt,
+                  messages: activeSession.messages.slice(),
+                  images: imageResult.images,
+                  turnNumber: turnCount,
+                },
+                {
+                  stage: "before",
+                  turnNumber: turnCount,
+                  agentId: params.sessionKey?.split(":")[0] ?? "main",
+                  sessionKey: params.sessionKey,
+                  workspaceDir: effectiveWorkspace,
+                  provider: params.provider,
+                  modelId: params.modelId,
+                },
+              );
+
+              if (beforeLlmResult) {
+                // Handle guardrail action
+                switch (beforeLlmResult.action) {
+                  case "block":
+                    // Return early with blocked result
+                    return {
+                      aborted: false,
+                      timedOut: false,
+                      promptError: null,
+                      sessionIdUsed: activeSession.sessionId,
+                      systemPromptReport,
+                      messagesSnapshot: activeSession.messages.slice(),
+                      assistantTexts: [],
+                      toolMetas: [],
+                      lastAssistant: undefined,
+                      didSendViaMessagingTool: false,
+                      messagingToolSentTexts: [],
+                      messagingToolSentTargets: [],
+                      cloudCodeAssistFormatError: false,
+                      blocked: true,
+                      blockResponse: beforeLlmResult.reason,
+                    };
+
+                  case "approval":
+                    // TODO: Implement approval flow using ExecApprovalManager pattern
+                    // For now, treat as block
+                    log.warn(
+                      `before_llm_call: approval action not yet implemented, blocking: ${beforeLlmResult.reason}`,
+                    );
+                    return {
+                      aborted: false,
+                      timedOut: false,
+                      promptError: null,
+                      sessionIdUsed: activeSession.sessionId,
+                      systemPromptReport,
+                      messagesSnapshot: activeSession.messages.slice(),
+                      assistantTexts: [],
+                      toolMetas: [],
+                      lastAssistant: undefined,
+                      didSendViaMessagingTool: false,
+                      messagingToolSentTexts: [],
+                      messagingToolSentTargets: [],
+                      cloudCodeAssistFormatError: false,
+                      blocked: true,
+                      blockResponse: beforeLlmResult.reason ?? "Approval required",
+                    };
+
+                  case "log":
+                    // Log was already handled by the guardrail, continue with modifications
+                    log.debug(`before_llm_call: logged issue, continuing`);
+                    break;
+
+                  case "allow":
+                    // Continue with any modifications
+                    break;
+                }
+
+                // Apply modifications (for allow/log actions)
+                if (beforeLlmResult.prompt) {
+                  effectivePrompt = beforeLlmResult.prompt;
+                  log.debug(
+                    `hooks: before_llm_call modified prompt (${beforeLlmResult.prompt.length} chars)`,
+                  );
+                }
+                if (beforeLlmResult.messages) {
+                  activeSession.agent.replaceMessages(beforeLlmResult.messages);
+                  log.debug(
+                    `hooks: before_llm_call modified messages (${beforeLlmResult.messages.length} messages)`,
+                  );
+                }
+              }
+            } catch (hookErr) {
+              log.warn(`before_llm_call hook failed: ${String(hookErr)}`);
+            }
+          }
+
           // Only pass images option if there are actually images to pass
           // This avoids potential issues with models that don't expect the images parameter
           if (imageResult.images.length > 0) {
@@ -833,6 +940,120 @@ export async function runEmbeddedAttempt(
           note: promptError ? "prompt error" : undefined,
         });
         anthropicPayloadLogger?.recordUsage(messagesSnapshot, promptError);
+
+        // Run after_llm_call hooks to allow plugins to inspect/block LLM responses
+        if (hookRunner?.hasHooks("after_llm_call") && !promptError) {
+          try {
+            const newMessages = messagesSnapshot.slice(previousMessageCount);
+            // Extract tool calls from new assistant messages
+            const toolCalls: Array<{ name: string; params: Record<string, unknown> }> = [];
+            for (const msg of newMessages) {
+              if (msg.role === "assistant" && Array.isArray(msg.content)) {
+                for (const part of msg.content) {
+                  if (part && part.type === "toolCall") {
+                    toolCalls.push({
+                      name: part.name,
+                      params: part.arguments ?? {},
+                    });
+                  }
+                }
+              }
+            }
+
+            const afterLlmResult = await hookRunner.runAfterLlmCall(
+              {
+                messages: messagesSnapshot,
+                newMessages,
+                toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+                turnNumber: turnCount,
+                durationMs: Date.now() - promptStartedAt,
+              },
+              {
+                stage: "after",
+                turnNumber: turnCount,
+                agentId: params.sessionKey?.split(":")[0] ?? "main",
+                sessionKey: params.sessionKey,
+                workspaceDir: effectiveWorkspace,
+                provider: params.provider,
+                modelId: params.modelId,
+                toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+                durationMs: Date.now() - promptStartedAt,
+              },
+            );
+
+            if (afterLlmResult) {
+              // Handle guardrail action
+              switch (afterLlmResult.action) {
+                case "block":
+                  // Return early with blocked result
+                  return {
+                    aborted: false,
+                    timedOut: false,
+                    promptError: null,
+                    sessionIdUsed,
+                    systemPromptReport,
+                    messagesSnapshot,
+                    assistantTexts,
+                    toolMetas: [],
+                    lastAssistant: undefined,
+                    didSendViaMessagingTool: false,
+                    messagingToolSentTexts: [],
+                    messagingToolSentTargets: [],
+                    cloudCodeAssistFormatError: false,
+                    blocked: true,
+                    blockResponse: afterLlmResult.reason,
+                  };
+
+                case "approval":
+                  // TODO: Implement approval flow using ExecApprovalManager pattern
+                  // For now, treat as block
+                  log.warn(
+                    `after_llm_call: approval action not yet implemented, blocking: ${afterLlmResult.reason}`,
+                  );
+                  return {
+                    aborted: false,
+                    timedOut: false,
+                    promptError: null,
+                    sessionIdUsed,
+                    systemPromptReport,
+                    messagesSnapshot,
+                    assistantTexts,
+                    toolMetas: [],
+                    lastAssistant: undefined,
+                    didSendViaMessagingTool: false,
+                    messagingToolSentTexts: [],
+                    messagingToolSentTargets: [],
+                    cloudCodeAssistFormatError: false,
+                    blocked: true,
+                    blockResponse: afterLlmResult.reason ?? "Approval required",
+                  };
+
+                case "log":
+                  // Log was already handled by the guardrail, continue with modifications
+                  log.debug(`after_llm_call: logged issue, continuing`);
+                  break;
+
+                case "allow":
+                  // Continue with any modifications
+                  break;
+              }
+
+              // Apply message modifications (for allow/log actions)
+              if (afterLlmResult.messages) {
+                // Replace the new messages portion of the snapshot
+                messagesSnapshot = [
+                  ...messagesSnapshot.slice(0, previousMessageCount),
+                  ...afterLlmResult.messages,
+                ];
+                log.debug(
+                  `hooks: after_llm_call modified messages (${afterLlmResult.messages.length} new messages)`,
+                );
+              }
+            }
+          } catch (hookErr) {
+            log.warn(`after_llm_call hook failed: ${String(hookErr)}`);
+          }
+        }
 
         // Run agent_end hooks to allow plugins to analyze the conversation
         // This is fire-and-forget, so we don't await

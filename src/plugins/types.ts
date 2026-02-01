@@ -300,7 +300,9 @@ export type PluginHookName =
   | "session_start"
   | "session_end"
   | "gateway_start"
-  | "gateway_stop";
+  | "gateway_stop"
+  | "before_llm_call"
+  | "after_llm_call";
 
 // Agent context shared across agent hooks
 export type PluginHookAgentContext = {
@@ -309,6 +311,77 @@ export type PluginHookAgentContext = {
   workspaceDir?: string;
   messageProvider?: string;
 };
+
+// ============================================================================
+// LLM Boundary Hooks (Unified Guardrail Model)
+// ============================================================================
+
+/** Action a guardrail can take */
+export type GuardrailAction = "allow" | "log" | "approval" | "block";
+
+/** Stage at which the guardrail is evaluated */
+export type GuardrailStage = "before" | "after";
+
+/** Tool call information for after-stage evaluation */
+export type GuardrailToolCall = {
+  name: string;
+  params: Record<string, unknown>;
+};
+
+/** Context for approval requests */
+export type GuardrailApprovalContext = {
+  suggestedDecision?: "allow" | "deny";
+  timeoutMs?: number;
+};
+
+/** Input to a guardrail hook */
+export type GuardrailInput = {
+  messages: AgentMessage[];
+  prompt?: string;
+  images?: unknown[];
+  context: {
+    stage: GuardrailStage;
+    turnNumber: number;
+    agentId?: string;
+    sessionKey?: string;
+    workspaceDir?: string;
+    provider?: string;
+    modelId?: string;
+    toolCalls?: GuardrailToolCall[];
+    durationMs?: number;
+  };
+};
+
+/** Output from a guardrail hook */
+export type GuardrailOutput = {
+  action: GuardrailAction;
+  messages?: AgentMessage[];
+  prompt?: string;
+  reason?: string;
+  details?: Record<string, unknown>;
+  approvalContext?: GuardrailApprovalContext;
+};
+
+// Legacy type aliases for backwards compatibility and hook runner
+export type PluginHookLlmContext = GuardrailInput["context"];
+
+export type PluginHookBeforeLlmCallEvent = {
+  prompt: string;
+  messages: AgentMessage[];
+  images?: unknown[];
+  turnNumber: number;
+};
+
+export type PluginHookAfterLlmCallEvent = {
+  messages: AgentMessage[];
+  newMessages: AgentMessage[];
+  toolCalls?: GuardrailToolCall[];
+  turnNumber: number;
+  durationMs?: number;
+};
+
+// Unified result type for both hooks
+export type PluginHookLlmCallResult = GuardrailOutput;
 
 // before_agent_start hook
 export type PluginHookBeforeAgentStartEvent = {
@@ -517,6 +590,14 @@ export type PluginHookHandlerMap = {
     event: PluginHookGatewayStopEvent,
     ctx: PluginHookGatewayContext,
   ) => Promise<void> | void;
+  before_llm_call: (
+    event: PluginHookBeforeLlmCallEvent,
+    ctx: PluginHookLlmContext,
+  ) => Promise<PluginHookLlmCallResult | void> | PluginHookLlmCallResult | void;
+  after_llm_call: (
+    event: PluginHookAfterLlmCallEvent,
+    ctx: PluginHookLlmContext,
+  ) => Promise<PluginHookLlmCallResult | void> | PluginHookLlmCallResult | void;
 };
 
 export type PluginHookRegistration<K extends PluginHookName = PluginHookName> = {

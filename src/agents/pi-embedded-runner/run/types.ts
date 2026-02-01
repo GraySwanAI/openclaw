@@ -102,4 +102,8 @@ export type EmbeddedRunAttemptResult = {
   cloudCodeAssistFormatError: boolean;
   /** Client tool call detected (OpenResponses hosted tools). */
   clientToolCall?: { name: string; params: Record<string, unknown> };
+  /** Whether the run was blocked by a guardrail hook. */
+  blocked?: boolean;
+  /** Response message from guardrail when blocked. */
+  blockResponse?: string;
 };
