@@ -1,0 +1,70 @@
+{
+  "id": "llamaguard",
+  "name": "Llama Guard",
+  "description": "Content safety guardrail using Llama Guard 3 model",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Enable the Llama Guard guardrail"
+      },
+      "provider": {
+        "type": "string",
+        "description": "Provider for running Llama Guard (default: ollama)"
+      },
+      "model": {
+        "type": "string",
+        "description": "Model ID (default: llama-guard3:8b)"
+      },
+      "authProfileId": {
+        "type": "string",
+        "description": "Auth profile ID for the provider"
+      },
+      "categories": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "code": { "type": "string" },
+            "name": { "type": "string" },
+            "description": { "type": "string" }
+          },
+          "required": ["code", "name"]
+        },
+        "description": "Custom safety categories"
+      },
+      "timeoutMs": {
+        "type": "number",
+        "description": "Request timeout in milliseconds (default: 60000)"
+      },
+      "maxTokens": {
+        "type": "number",
+        "description": "Maximum tokens for response (default: 100)"
+      },
+      "failOpen": {
+        "type": "boolean",
+        "description": "Allow content through when guardrail evaluation fails"
+      },
+      "stages": {
+        "type": "object",
+        "properties": {
+          "before": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "defaultAction": { "type": "string", "enum": ["allow", "log", "approval", "block"] }
+            }
+          },
+          "after": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "defaultAction": { "type": "string", "enum": ["allow", "log", "approval", "block"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}

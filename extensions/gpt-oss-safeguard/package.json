@@ -1,0 +1,14 @@
+{
+  "name": "@openclaw/gpt-oss-safeguard",
+  "version": "2026.1.30",
+  "description": "GPT-based content safety guardrail plugin with customizable policies",
+  "type": "module",
+  "devDependencies": {
+    "openclaw": "workspace:*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

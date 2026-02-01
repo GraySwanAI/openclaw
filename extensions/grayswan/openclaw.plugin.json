@@ -1,0 +1,76 @@
+{
+  "id": "grayswan",
+  "name": "Gray Swan Cygnal",
+  "description": "Content safety guardrail using Gray Swan Cygnal API",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Enable the Gray Swan guardrail"
+      },
+      "apiKey": {
+        "type": "string",
+        "description": "Gray Swan API key"
+      },
+      "apiBase": {
+        "type": "string",
+        "description": "API base URL (default: https://api.grayswan.ai)"
+      },
+      "policyId": {
+        "type": "string",
+        "description": "Policy ID for custom policies"
+      },
+      "categories": {
+        "type": "object",
+        "additionalProperties": { "type": "string" },
+        "description": "Custom category definitions"
+      },
+      "reasoningMode": {
+        "type": "string",
+        "enum": ["off", "hybrid", "thinking"],
+        "description": "Reasoning mode for API requests"
+      },
+      "violationThreshold": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "description": "Violation score threshold (0-1, default: 0.5)"
+      },
+      "timeoutMs": {
+        "type": "number",
+        "description": "Request timeout in milliseconds"
+      },
+      "failOpen": {
+        "type": "boolean",
+        "description": "Allow content through when guardrail evaluation fails"
+      },
+      "stages": {
+        "type": "object",
+        "properties": {
+          "before": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "defaultAction": { "type": "string", "enum": ["allow", "log", "approval", "block"] },
+              "violationThreshold": { "type": "number" },
+              "blockOnMutation": { "type": "boolean" },
+              "blockOnIpi": { "type": "boolean" }
+            }
+          },
+          "after": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "defaultAction": { "type": "string", "enum": ["allow", "log", "approval", "block"] },
+              "violationThreshold": { "type": "number" },
+              "blockOnMutation": { "type": "boolean" },
+              "blockOnIpi": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "required": ["apiKey"]
+  }
+}

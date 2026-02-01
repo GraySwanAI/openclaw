@@ -1,0 +1,71 @@
+{
+  "id": "gpt-oss-safeguard",
+  "name": "GPT-OSS Safeguard",
+  "description": "Content safety guardrail using configurable LLM with custom policies",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Enable the GPT-OSS Safeguard guardrail"
+      },
+      "provider": {
+        "type": "string",
+        "description": "Provider for running the safeguard LLM"
+      },
+      "model": {
+        "type": "string",
+        "description": "Model ID"
+      },
+      "authProfileId": {
+        "type": "string",
+        "description": "Auth profile ID for the provider"
+      },
+      "policy": {
+        "type": "string",
+        "description": "Custom safety policy"
+      },
+      "reasoningEffort": {
+        "type": "string",
+        "enum": ["low", "medium", "high"],
+        "description": "Reasoning effort level (default: low)"
+      },
+      "outputFormat": {
+        "type": "string",
+        "enum": ["binary", "json", "rich"],
+        "description": "Output format (default: binary)"
+      },
+      "timeoutMs": {
+        "type": "number",
+        "description": "Request timeout in milliseconds (default: 30000)"
+      },
+      "maxTokens": {
+        "type": "number",
+        "description": "Maximum tokens for response (default: 500)"
+      },
+      "failOpen": {
+        "type": "boolean",
+        "description": "Allow content through when guardrail evaluation fails"
+      },
+      "stages": {
+        "type": "object",
+        "properties": {
+          "before": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "defaultAction": { "type": "string", "enum": ["allow", "log", "approval", "block"] }
+            }
+          },
+          "after": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "defaultAction": { "type": "string", "enum": ["allow", "log", "approval", "block"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}

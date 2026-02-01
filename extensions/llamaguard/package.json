@@ -1,0 +1,14 @@
+{
+  "name": "@openclaw/llamaguard",
+  "version": "2026.1.30",
+  "description": "Llama Guard guardrail plugin for content safety",
+  "type": "module",
+  "devDependencies": {
+    "openclaw": "workspace:*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
