@@ -102,4 +102,8 @@ export type EmbeddedRunAttemptResult = {
   cloudCodeAssistFormatError: boolean;
   /** Client tool call detected (OpenResponses hosted tools). */
   clientToolCall?: { name: string; params: Record<string, unknown> };
+  /** Request was blocked by a before_agent_start hook. */
+  blocked?: boolean;
+  /** Reason the request was blocked. */
+  blockReason?: string;
 };

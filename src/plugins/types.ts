@@ -319,6 +319,12 @@ export type PluginHookBeforeAgentStartEvent = {
 export type PluginHookBeforeAgentStartResult = {
   systemPrompt?: string;
   prependContext?: string;
+  /** Replace the user's prompt entirely */
+  prompt?: string;
+  /** Block the request from proceeding */
+  block?: boolean;
+  /** Reason for blocking (returned to caller) */
+  blockReason?: string;
 };
 
 // agent_end hook
@@ -381,11 +387,14 @@ export type PluginHookToolContext = {
   agentId?: string;
   sessionKey?: string;
   toolName: string;
+  workspaceDir?: string;
+  messageProvider?: string;
 };
 
 // before_tool_call hook
 export type PluginHookBeforeToolCallEvent = {
   toolName: string;
+  toolCallId: string;
   params: Record<string, unknown>;
 };
 
@@ -398,10 +407,17 @@ export type PluginHookBeforeToolCallResult = {
 // after_tool_call hook
 export type PluginHookAfterToolCallEvent = {
   toolName: string;
+  toolCallId: string;
   params: Record<string, unknown>;
-  result?: unknown;
+  /** The tool result details (parsed payload, not the raw AgentToolResult structure) */
+  resultDetails?: unknown;
   error?: string;
   durationMs?: number;
+};
+
+export type PluginHookAfterToolCallResult = {
+  /** Replace the tool result details (will be converted to AgentToolResult format) */
+  resultDetails?: unknown;
 };
 
 // tool_result_persist hook
@@ -496,7 +512,7 @@ export type PluginHookHandlerMap = {
   after_tool_call: (
     event: PluginHookAfterToolCallEvent,
     ctx: PluginHookToolContext,
-  ) => Promise<void> | void;
+  ) => Promise<PluginHookAfterToolCallResult | void> | PluginHookAfterToolCallResult | void;
   tool_result_persist: (
     event: PluginHookToolResultPersistEvent,
     ctx: PluginHookToolResultPersistContext,

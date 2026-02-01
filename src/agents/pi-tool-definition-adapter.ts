@@ -6,11 +6,20 @@ import type {
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import type { ClientToolDefinition } from "./pi-embedded-runner/run/params.js";
 import { logDebug, logError } from "../logger.js";
+import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import { normalizeToolName } from "./tool-policy.js";
 import { jsonResult } from "./tools/common.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: TypeBox schema type from pi-agent-core uses a different module instance.
 type AnyAgentTool = AgentTool<any, unknown>;
+
+/** Context passed to tool hooks */
+export type ToolHookContext = {
+  agentId?: string;
+  sessionKey?: string;
+  workspaceDir?: string;
+  messageProvider?: string;
+};
 
 function describeToolExecutionError(err: unknown): {
   message: string;
@@ -23,7 +32,10 @@ function describeToolExecutionError(err: unknown): {
   return { message: String(err) };
 }
 
-export function toToolDefinitions(tools: AnyAgentTool[]): ToolDefinition[] {
+export function toToolDefinitions(
+  tools: AnyAgentTool[],
+  hookContext?: ToolHookContext,
+): ToolDefinition[] {
   return tools.map((tool) => {
     const name = tool.name || "tool";
     const normalizedName = normalizeToolName(name);
@@ -42,17 +54,60 @@ export function toToolDefinitions(tools: AnyAgentTool[]): ToolDefinition[] {
       ): Promise<AgentToolResult<unknown>> => {
         // KNOWN: pi-coding-agent `ToolDefinition.execute` has a different signature/order
         // than pi-agent-core `AgentTool.execute`. This adapter keeps our existing tools intact.
+        const hookRunner = getGlobalHookRunner();
+        const toolCtx = {
+          agentId: hookContext?.agentId,
+          sessionKey: hookContext?.sessionKey,
+          workspaceDir: hookContext?.workspaceDir,
+          messageProvider: hookContext?.messageProvider,
+          toolName: normalizedName,
+        };
+
+        // Run before_tool_call hooks - may modify params or block execution
+        let effectiveParams = params;
+        if (hookRunner?.hasHooks("before_tool_call")) {
+          try {
+            const beforeResult = await hookRunner.runBeforeToolCall(
+              {
+                toolName: normalizedName,
+                toolCallId,
+                params: params as Record<string, unknown>,
+              },
+              toolCtx,
+            );
+            if (beforeResult?.block) {
+              logDebug(
+                `[tools] ${normalizedName} blocked by hook: ${beforeResult.blockReason ?? "no reason"}`,
+              );
+              return jsonResult({
+                status: "blocked",
+                tool: normalizedName,
+                reason: beforeResult.blockReason ?? "Blocked by policy",
+              });
+            }
+            if (beforeResult?.params) {
+              effectiveParams = beforeResult.params;
+            }
+          } catch (hookErr) {
+            logError(`[tools] before_tool_call hook failed for ${normalizedName}: ${hookErr}`);
+          }
+        }
+
+        const startTime = Date.now();
+        let result: AgentToolResult<unknown>;
+        let execError: string | undefined;
+
         try {
-          return await tool.execute(toolCallId, params, signal, onUpdate);
+          result = await tool.execute(toolCallId, effectiveParams, signal, onUpdate);
         } catch (err) {
           if (signal?.aborted) {
             throw err;
           }
-          const name =
+          const errName =
             err && typeof err === "object" && "name" in err
               ? String((err as { name?: unknown }).name)
               : "";
-          if (name === "AbortError") {
+          if (errName === "AbortError") {
             throw err;
           }
           const described = describeToolExecutionError(err);
@@ -60,12 +115,38 @@ export function toToolDefinitions(tools: AnyAgentTool[]): ToolDefinition[] {
             logDebug(`tools: ${normalizedName} failed stack:\n${described.stack}`);
           }
           logError(`[tools] ${normalizedName} failed: ${described.message}`);
-          return jsonResult({
+          execError = described.message;
+          result = jsonResult({
             status: "error",
             tool: normalizedName,
             error: described.message,
           });
         }
+
+        // Run after_tool_call hooks - may modify result
+        if (hookRunner?.hasHooks("after_tool_call")) {
+          try {
+            const afterResult = await hookRunner.runAfterToolCall(
+              {
+                toolName: normalizedName,
+                toolCallId,
+                params: effectiveParams as Record<string, unknown>,
+                resultDetails: result.details,
+                error: execError,
+                durationMs: Date.now() - startTime,
+              },
+              toolCtx,
+            );
+            if (afterResult?.resultDetails !== undefined) {
+              // Convert modified result back to AgentToolResult format
+              result = jsonResult(afterResult.resultDetails);
+            }
+          } catch (hookErr) {
+            logError(`[tools] after_tool_call hook failed for ${normalizedName}: ${hookErr}`);
+          }
+        }
+
+        return result;
       },
     } satisfies ToolDefinition;
   });

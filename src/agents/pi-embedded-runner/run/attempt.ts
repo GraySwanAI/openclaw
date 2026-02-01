@@ -446,6 +446,12 @@ export async function runEmbeddedAttempt(
       const { builtInTools, customTools } = splitSdkTools({
         tools,
         sandboxEnabled: !!sandbox?.enabled,
+        hookContext: {
+          agentId: sessionAgentId,
+          sessionKey: params.sessionKey,
+          workspaceDir: effectiveWorkspace,
+          messageProvider: params.messageProvider ?? params.messageChannel,
+        },
       });
 
       // Add client tools (OpenResponses hosted tools) to customTools
@@ -706,7 +712,7 @@ export async function runEmbeddedAttempt(
       try {
         const promptStartedAt = Date.now();
 
-        // Run before_agent_start hooks to allow plugins to inject context
+        // Run before_agent_start hooks to allow plugins to inject context, modify prompt, or block
         let effectivePrompt = params.prompt;
         if (hookRunner?.hasHooks("before_agent_start")) {
           try {
@@ -722,7 +728,36 @@ export async function runEmbeddedAttempt(
                 messageProvider: params.messageProvider ?? undefined,
               },
             );
-            if (hookResult?.prependContext) {
+
+            // Check if request was blocked by a hook
+            if (hookResult?.block) {
+              const reason = hookResult.blockReason ?? "Request blocked by policy";
+              log.warn(`before_agent_start hook blocked request: ${reason}`);
+              return {
+                aborted: false,
+                timedOut: false,
+                promptError: new Error(reason),
+                sessionIdUsed: activeSession.sessionId,
+                systemPromptReport,
+                messagesSnapshot: activeSession.messages.slice(),
+                assistantTexts: [],
+                toolMetas: [],
+                lastAssistant: undefined,
+                lastToolError: undefined,
+                didSendViaMessagingTool: false,
+                messagingToolSentTexts: [],
+                messagingToolSentTargets: [],
+                cloudCodeAssistFormatError: false,
+                blocked: true,
+                blockReason: reason,
+              };
+            }
+
+            // Apply prompt mutation if provided
+            if (hookResult?.prompt) {
+              effectivePrompt = hookResult.prompt;
+              log.debug(`hooks: replaced prompt (${hookResult.prompt.length} chars)`);
+            } else if (hookResult?.prependContext) {
               effectivePrompt = `${hookResult.prependContext}\n\n${params.prompt}`;
               log.debug(
                 `hooks: prepended context to prompt (${hookResult.prependContext.length} chars)`,

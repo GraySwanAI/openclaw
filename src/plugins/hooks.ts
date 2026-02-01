@@ -9,6 +9,7 @@ import type { PluginRegistry } from "./registry.js";
 import type {
   PluginHookAfterCompactionEvent,
   PluginHookAfterToolCallEvent,
+  PluginHookAfterToolCallResult,
   PluginHookAgentContext,
   PluginHookAgentEndEvent,
   PluginHookBeforeAgentStartEvent,
@@ -52,6 +53,7 @@ export type {
   PluginHookBeforeToolCallEvent,
   PluginHookBeforeToolCallResult,
   PluginHookAfterToolCallEvent,
+  PluginHookAfterToolCallResult,
   PluginHookToolResultPersistContext,
   PluginHookToolResultPersistEvent,
   PluginHookToolResultPersistResult,
@@ -177,8 +179,10 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
 
   /**
    * Run before_agent_start hook.
-   * Allows plugins to inject context into the system prompt.
-   * Runs sequentially, merging systemPrompt and prependContext from all handlers.
+   * Allows plugins to inject context into the system prompt, modify the prompt,
+   * or block the request entirely.
+   * Runs sequentially, merging results from all handlers.
+   * If any handler returns block=true, the request is blocked.
    */
   async function runBeforeAgentStart(
     event: PluginHookBeforeAgentStartEvent,
@@ -194,6 +198,10 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
           acc?.prependContext && next.prependContext
             ? `${acc.prependContext}\n\n${next.prependContext}`
             : (next.prependContext ?? acc?.prependContext),
+        prompt: next.prompt ?? acc?.prompt,
+        // Once blocked, stay blocked (first blocker wins for reason)
+        block: next.block ?? acc?.block,
+        blockReason: acc?.block ? acc.blockReason : (next.blockReason ?? acc?.blockReason),
       }),
     );
   }
@@ -303,13 +311,21 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
 
   /**
    * Run after_tool_call hook.
-   * Runs in parallel (fire-and-forget).
+   * Allows plugins to observe or modify tool results.
+   * Runs sequentially to allow result modification.
    */
   async function runAfterToolCall(
     event: PluginHookAfterToolCallEvent,
     ctx: PluginHookToolContext,
-  ): Promise<void> {
-    return runVoidHook("after_tool_call", event, ctx);
+  ): Promise<PluginHookAfterToolCallResult | undefined> {
+    return runModifyingHook<"after_tool_call", PluginHookAfterToolCallResult>(
+      "after_tool_call",
+      event,
+      ctx,
+      (acc, next) => ({
+        resultDetails: next.resultDetails !== undefined ? next.resultDetails : acc?.resultDetails,
+      }),
+    );
   }
 
   /**
