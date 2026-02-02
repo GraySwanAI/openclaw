@@ -92,6 +92,8 @@ export type RunEmbeddedPiAgentParams = {
   lane?: string;
   enqueue?: typeof enqueueCommand;
   extraSystemPrompt?: string;
+  /** Override the system prompt entirely (bypasses the default OpenClaw system prompt). */
+  systemPromptOverride?: string;
   streamParams?: AgentStreamParams;
   ownerNumbers?: string[];
   enforceFinalTag?: boolean;

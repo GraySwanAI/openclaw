@@ -354,32 +354,36 @@ export async function runEmbeddedAttempt(
     });
     const ttsHint = params.config ? buildTtsSystemPromptHint(params.config) : undefined;
 
-    const appendPrompt = buildEmbeddedSystemPrompt({
-      workspaceDir: effectiveWorkspace,
-      defaultThinkLevel: params.thinkLevel,
-      reasoningLevel: params.reasoningLevel ?? "off",
-      extraSystemPrompt: params.extraSystemPrompt,
-      ownerNumbers: params.ownerNumbers,
-      reasoningTagHint,
-      heartbeatPrompt: isDefaultAgent
-        ? resolveHeartbeatPrompt(params.config?.agents?.defaults?.heartbeat?.prompt)
-        : undefined,
-      skillsPrompt,
-      docsPath: docsPath ?? undefined,
-      ttsHint,
-      workspaceNotes,
-      reactionGuidance,
-      promptMode,
-      runtimeInfo,
-      messageToolHints,
-      sandboxInfo,
-      tools,
-      modelAliasLines: buildModelAliasLines(params.config),
-      userTimezone,
-      userTime,
-      userTimeFormat,
-      contextFiles,
-    });
+    const systemPromptOverride = params.systemPromptOverride?.trim();
+    const appendPrompt =
+      systemPromptOverride && systemPromptOverride.length > 0
+        ? systemPromptOverride
+        : buildEmbeddedSystemPrompt({
+            workspaceDir: effectiveWorkspace,
+            defaultThinkLevel: params.thinkLevel,
+            reasoningLevel: params.reasoningLevel ?? "off",
+            extraSystemPrompt: params.extraSystemPrompt,
+            ownerNumbers: params.ownerNumbers,
+            reasoningTagHint,
+            heartbeatPrompt: isDefaultAgent
+              ? resolveHeartbeatPrompt(params.config?.agents?.defaults?.heartbeat?.prompt)
+              : undefined,
+            skillsPrompt,
+            docsPath: docsPath ?? undefined,
+            ttsHint,
+            workspaceNotes,
+            reactionGuidance,
+            promptMode,
+            runtimeInfo,
+            messageToolHints,
+            sandboxInfo,
+            tools,
+            modelAliasLines: buildModelAliasLines(params.config),
+            userTimezone,
+            userTime,
+            userTimeFormat,
+            contextFiles,
+          });
     const systemPromptReport = buildSystemPromptReport({
       source: "run",
       generatedAt: Date.now(),

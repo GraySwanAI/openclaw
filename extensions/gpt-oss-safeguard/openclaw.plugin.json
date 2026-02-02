@@ -3,7 +3,7 @@
   "uiHints": {
     "provider": {
       "label": "Model Provider",
-      "help": "e.g., ollama, vllm, openai"
+      "help": "e.g., ollama, vllm, openrouter"
     },
     "model": {
       "label": "Model ID",

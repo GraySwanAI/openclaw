@@ -63,9 +63,9 @@ describe("buildSafeguardPrompt", () => {
       DEFAULT_OUTPUT_FORMAT,
     );
 
-    expect(systemPrompt).toContain("You are a safety classifier");
-    expect(systemPrompt).toContain("Violent or harmful content");
-    expect(systemPrompt).toContain("Hate speech or discrimination");
+    expect(systemPrompt).toContain("prompt injection");
+    expect(systemPrompt).toContain("secrets");
+    expect(systemPrompt).toContain("Otherwise classify as safe");
   });
 });
 

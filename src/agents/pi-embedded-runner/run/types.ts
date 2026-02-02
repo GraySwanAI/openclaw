@@ -80,6 +80,8 @@ export type EmbeddedRunAttemptParams = {
   onToolResult?: (payload: { text?: string; mediaUrls?: string[] }) => void | Promise<void>;
   onAgentEvent?: (evt: { stream: string; data: Record<string, unknown> }) => void;
   extraSystemPrompt?: string;
+  /** Override the system prompt entirely (bypasses the default OpenClaw system prompt). */
+  systemPromptOverride?: string;
   streamParams?: AgentStreamParams;
   ownerNumbers?: string[];
   enforceFinalTag?: boolean;
