@@ -156,6 +156,7 @@ async function callSafeguard(params: {
   content: string;
   historyContext?: string;
   apiConfig: OpenClawConfig;
+  logger?: OpenClawPluginApi["logger"];
 }): Promise<SafeguardResult | null> {
   const provider = params.cfg.provider ?? DEFAULT_PROVIDER;
   const model = params.cfg.model ?? DEFAULT_MODEL;
@@ -179,6 +180,25 @@ async function callSafeguard(params: {
   );
 
   const prompt = userPrompt;
+  const logPrompts =
+    process.env.OPENCLAW_GPT_OSS_LOG_PROMPTS === "1" ||
+    process.env.OPENCLAW_GPT_OSS_LOG_PROMPTS === "true";
+  const maxPromptLogChars = Number(process.env.OPENCLAW_GPT_OSS_LOG_MAX_CHARS ?? "2000");
+
+  if (logPrompts && params.logger?.info) {
+    const safeMax = Number.isFinite(maxPromptLogChars) && maxPromptLogChars > 0
+      ? maxPromptLogChars
+      : 2000;
+    const truncate = (value: string) =>
+      value.length > safeMax
+        ? `${value.slice(0, safeMax)}… (truncated, ${value.length} chars)`
+        : value;
+    params.logger.info(
+      `GPT-OSS-Safeguard prompt (mode: ${systemPromptMode}, provider: ${provider}, model: ${model})`,
+    );
+    params.logger.info(`System prompt:\n${truncate(systemPrompt)}`);
+    params.logger.info(`User prompt:\n${truncate(userPrompt)}`);
+  }
 
   let tmpDir: string | null = null;
   try {
@@ -240,6 +260,7 @@ const safeguardPlugin = createGuardrailPlugin<SafeguardConfig>({
       content: ctx.content,
       historyContext,
       apiConfig: api.config,
+      logger: api.logger,
     });
 
     if (!result) {
