@@ -13,6 +13,10 @@
       "label": "Safety Policy",
       "help": "Custom policy text (400-600 tokens optimal)"
     },
+    "systemPromptMode": {
+      "label": "System Prompt Mode",
+      "help": "override (default) or append"
+    },
     "reasoningEffort": {
       "label": "Reasoning Effort",
       "help": "low, medium, or high"
@@ -53,6 +57,10 @@
       },
       "policy": {
         "type": "string"
+      },
+      "systemPromptMode": {
+        "type": "string",
+        "enum": ["override", "append"]
       },
       "reasoningEffort": {
         "type": "string",

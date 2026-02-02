@@ -36,6 +36,7 @@ type SafeguardConfig = GuardrailBaseConfig & {
   model?: string;
   authProfileId?: string;
   policy?: string;
+  systemPromptMode?: "override" | "append";
   reasoningEffort?: "low" | "medium" | "high";
   outputFormat?: "binary" | "json" | "rich";
   timeoutMs?: number;
@@ -159,6 +160,7 @@ async function callSafeguard(params: {
   const provider = params.cfg.provider ?? DEFAULT_PROVIDER;
   const model = params.cfg.model ?? DEFAULT_MODEL;
   const policy = params.cfg.policy ?? DEFAULT_POLICY;
+  const systemPromptMode = params.cfg.systemPromptMode ?? "override";
   const reasoningEffort = params.cfg.reasoningEffort ?? DEFAULT_REASONING_EFFORT;
   const outputFormat = params.cfg.outputFormat ?? DEFAULT_OUTPUT_FORMAT;
   const timeoutMs = params.cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -192,7 +194,8 @@ async function callSafeguard(params: {
       workspaceDir: process.cwd(),
       config: params.apiConfig,
       prompt,
-      systemPromptOverride: systemPrompt,
+      systemPromptOverride: systemPromptMode === "override" ? systemPrompt : undefined,
+      extraSystemPrompt: systemPromptMode === "append" ? systemPrompt : undefined,
       timeoutMs,
       runId: sessionId,
       provider,
