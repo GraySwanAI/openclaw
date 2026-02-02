@@ -18,10 +18,10 @@ import {
   type OpenClawPluginApi,
   cleanupTempDir,
   collectText,
+  createGuardrailRunId,
   createGuardrailPlugin,
   createGuardrailTempDir,
   extractMessagesContent,
-  generateSessionId,
   loadRunEmbeddedPiAgent,
 } from "openclaw/plugin-sdk";
 
@@ -185,7 +185,7 @@ async function callSafeguard(params: {
   let tmpDir: string | null = null;
   try {
     tmpDir = await createGuardrailTempDir("safeguard");
-    const sessionId = generateSessionId("safeguard");
+    const sessionId = createGuardrailRunId("gpt-oss-safeguard");
     const sessionFile = path.join(tmpDir, "session.json");
 
     const runEmbeddedPiAgent = await loadRunEmbeddedPiAgent();

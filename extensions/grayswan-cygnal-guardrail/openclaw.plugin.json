@@ -70,6 +70,11 @@
     "stages.afterResponse.mode": {
       "label": "Mode",
       "help": "Block violations or monitor only"
+    },
+    "guardrailPriority": {
+      "label": "Guardrail Priority",
+      "advanced": true,
+      "help": "Higher runs earlier when multiple guardrails are enabled"
     }
   },
   "configSchema": {
@@ -106,6 +111,9 @@
       },
       "failOpen": {
         "type": "boolean"
+      },
+      "guardrailPriority": {
+        "type": "integer"
       },
       "stages": {
         "type": "object",

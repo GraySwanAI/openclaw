@@ -344,6 +344,8 @@ export type PluginHookBeforeRequestResult = {
   messages?: AgentMessage[];
   block?: boolean;
   blockResponse?: string;
+  /** Plugin id that triggered a block (populated by hook runner when block is true). */
+  pluginId?: string;
 };
 
 // after_response hook (guardrail stage: inspect/modify/block after model response)
@@ -357,6 +359,8 @@ export type PluginHookAfterResponseResult = {
   assistantTexts?: string[];
   block?: boolean;
   blockResponse?: string;
+  /** Plugin id that triggered a block (populated by hook runner when block is true). */
+  pluginId?: string;
 };
 
 // Compaction hooks

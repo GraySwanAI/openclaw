@@ -87,6 +87,7 @@ import { resolveSandboxRuntimeStatus } from "../../sandbox/runtime-status.js";
 import { buildTtsSystemPromptHint } from "../../../tts/tts.js";
 import { isTimeoutError } from "../../failover-error.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
+import { isGuardrailRunId } from "../../../plugins/guardrails-utils.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
 import type { ToolHookContext } from "../../pi-tool-definition-adapter.js";
 
@@ -734,7 +735,9 @@ export async function runEmbeddedAttempt(
       }
 
       // Get hook runner once for both before_agent_start and agent_end hooks
-      const hookRunner = getGlobalHookRunner();
+      const skipGuardrailHooks =
+        isGuardrailRunId(params.sessionId) || isGuardrailRunId(params.runId);
+      const hookRunner = skipGuardrailHooks ? null : getGlobalHookRunner();
 
       let promptError: unknown = null;
       try {
@@ -801,7 +804,7 @@ export async function runEmbeddedAttempt(
           if (hookResult?.block) {
             guardrailBlock = {
               stage: "before_request",
-              hookId: "before_request_hook",
+              hookId: hookResult.pluginId ?? "before_request_hook",
               response: hookResult.blockResponse,
             };
             if (sessionManager) {
@@ -965,7 +968,7 @@ export async function runEmbeddedAttempt(
             const blockResponse = hookResult.blockResponse?.trim() || "Response blocked by policy.";
             guardrailBlock = {
               stage: "after_response",
-              hookId: "after_response_hook",
+              hookId: hookResult.pluginId ?? "after_response_hook",
               response: blockResponse,
             };
             assistantTexts.splice(0, assistantTexts.length, blockResponse);

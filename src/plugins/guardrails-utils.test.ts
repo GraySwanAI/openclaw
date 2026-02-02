@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   appendWarningToToolResult,
   buildToolCallSummary,
+  createGuardrailRunId,
   extractMessagesContent,
   extractTextFromContent,
   extractToolResultText,
   generateSessionId,
+  isGuardrailRunId,
   isStageEnabled,
   replaceToolResultWithWarning,
   resolveBlockMode,
@@ -151,6 +153,19 @@ describe("replaceToolResultWithWarning", () => {
     const result = { content: [] };
     const modified = replaceToolResultWithWarning(result, "warning");
     expect((modified.details as any).guardrailWarning).toBe("warning");
+  });
+});
+
+describe("guardrail run id helpers", () => {
+  it("creates guardrail run ids with the expected prefix", () => {
+    const runId = createGuardrailRunId("gpt-oss-safeguard");
+    expect(runId.startsWith("guardrail:")).toBe(true);
+    expect(isGuardrailRunId(runId)).toBe(true);
+  });
+
+  it("returns false for non-guardrail ids", () => {
+    expect(isGuardrailRunId("session-123")).toBe(false);
+    expect(isGuardrailRunId(undefined)).toBe(false);
   });
 });
 

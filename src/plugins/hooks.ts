@@ -270,11 +270,13 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
         )(currentEvent, ctx);
 
         if (handlerResult !== undefined && handlerResult !== null) {
+          const nextBlock = handlerResult.block ?? result?.block;
           result = {
             prompt: handlerResult.prompt ?? result?.prompt,
             messages: handlerResult.messages ?? result?.messages,
-            block: handlerResult.block ?? result?.block,
+            block: nextBlock,
             blockResponse: handlerResult.blockResponse ?? result?.blockResponse,
+            pluginId: nextBlock ? (handlerResult.pluginId ?? hook.pluginId) : result?.pluginId,
           };
 
           if (handlerResult.prompt !== undefined) {
@@ -326,10 +328,12 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
         )(currentEvent, ctx);
 
         if (handlerResult !== undefined && handlerResult !== null) {
+          const nextBlock = handlerResult.block ?? result?.block;
           result = {
             assistantTexts: handlerResult.assistantTexts ?? result?.assistantTexts,
-            block: handlerResult.block ?? result?.block,
+            block: nextBlock,
             blockResponse: handlerResult.blockResponse ?? result?.blockResponse,
+            pluginId: nextBlock ? (handlerResult.pluginId ?? hook.pluginId) : result?.pluginId,
           };
 
           if (handlerResult.assistantTexts !== undefined) {

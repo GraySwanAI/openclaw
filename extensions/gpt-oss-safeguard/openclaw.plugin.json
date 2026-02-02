@@ -37,6 +37,11 @@
       "label": "Fail Open",
       "help": "Allow requests on model errors"
     },
+    "guardrailPriority": {
+      "label": "Guardrail Priority",
+      "advanced": true,
+      "help": "Higher runs earlier when multiple guardrails are enabled"
+    },
     "maxTokens": {
       "label": "Max Tokens",
       "advanced": true
@@ -108,6 +113,9 @@
       },
       "failOpen": {
         "type": "boolean"
+      },
+      "guardrailPriority": {
+        "type": "integer"
       },
       "maxTokens": {
         "type": "integer",

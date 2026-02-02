@@ -10,6 +10,10 @@
         "type": "boolean",
         "description": "Allow commands through if evaluation fails (default: true)"
       },
+      "guardrailPriority": {
+        "type": "integer",
+        "description": "Higher runs earlier when multiple guardrails are enabled"
+      },
       "extraPatterns": {
         "type": "array",
         "items": { "type": "string" },
@@ -41,7 +45,11 @@
     "uiHints": {
       "extraPatterns": { "label": "Extra Block Patterns", "advanced": true },
       "allowPatterns": { "label": "Allow Patterns", "advanced": true },
-      "disabledRules": { "label": "Disabled Rules", "advanced": true }
+      "disabledRules": { "label": "Disabled Rules", "advanced": true },
+      "guardrailPriority": {
+        "label": "Guardrail Priority",
+        "advanced": true
+      }
     }
   }
 }

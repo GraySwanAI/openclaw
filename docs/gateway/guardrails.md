@@ -27,12 +27,50 @@ OpenClaw evaluates stages in this order:
 3. `after_tool_call` — inspect and optionally modify tool results before they go back to the model.
 4. `after_response` — inspect and optionally modify the assistant response before it is returned.
 
-Within a stage, hooks run by descending `priority` (default `0`).
+Within a stage, hooks run by descending `priority` (higher first).
+Guardrail plugins created with `createGuardrailPlugin` default to priority `50`, and you can override that with `guardrailPriority` in the plugin config.
 If any hook **blocks**, later hooks do not run for that stage.
 
-## Plugin hook interface
+## Writing a guardrail plugin
 
-Guardrails are implemented using the plugin hook system. Plugins can register handlers for guardrail stages via `api.on()`:
+Most guardrail plugins should use the `createGuardrailPlugin<TConfig>()` helper, which wires all four stages and handles common behaviors like `block`, `monitor`, and history inclusion.
+
+```ts
+import {
+  createGuardrailPlugin,
+  type GuardrailEvaluationContext,
+  type GuardrailEvaluation,
+} from "openclaw/plugin-sdk";
+
+type MyGuardrailConfig = {
+  failOpen?: boolean;
+  stages?: {
+    beforeRequest?: { enabled?: boolean; mode?: "block" | "monitor" };
+    afterResponse?: { enabled?: boolean; mode?: "block" | "monitor" };
+  };
+};
+
+export default createGuardrailPlugin<MyGuardrailConfig>({
+  id: "my-guardrail",
+  name: "My Guardrail",
+  async evaluate(
+    ctx: GuardrailEvaluationContext,
+    _config: MyGuardrailConfig,
+  ): Promise<GuardrailEvaluation | null> {
+    if (ctx.content.includes("unsafe")) {
+      return { safe: false, reason: "unsafe content" };
+    }
+    return { safe: true };
+  },
+  formatViolationMessage(evaluation, location) {
+    return `Blocked ${location}: ${evaluation.reason ?? "unsafe content"}.`;
+  },
+});
+```
+
+## Advanced manual hooks
+
+If you need full control, you can register raw hook handlers via `api.on()`:
 
 ```ts
 // Example plugin registering guardrail hooks
@@ -106,6 +144,7 @@ Configuration example:
           "violationThreshold": 0.5,
           "timeoutMs": 30000,
           "failOpen": true,
+          "guardrailPriority": 80,
           "stages": {
             "beforeRequest": { "enabled": true, "mode": "block" },
             "beforeToolCall": { "enabled": true, "mode": "block" },
@@ -153,6 +192,7 @@ Configuration example:
           "outputFormat": "json",
           "timeoutMs": 30000,
           "failOpen": true,
+          "guardrailPriority": 60,
           "stages": {
             "beforeRequest": { "enabled": true, "mode": "block" },
             "afterResponse": { "enabled": true, "mode": "monitor" }
