@@ -1094,13 +1094,25 @@ describe("applyAuthChoice", () => {
     });
     vi.stubGlobal("fetch", fetchSpy);
 
-    let oauthUrl = "";
-    const text = vi.fn(async () => {
-      const state = oauthUrl ? new URL(oauthUrl).searchParams.get("state") : "";
-      if (!state) {
-        return "code_manual";
+    const runtime: RuntimeEnv = {
+      log: vi.fn(),
+      error: vi.fn(),
+      exit: vi.fn((code: number) => {
+        throw new Error(`exit:${code}`);
+      }),
+    };
+    const text: WizardPrompter["text"] = vi.fn(async (params) => {
+      if (params.message === "Paste the redirect URL") {
+        const lastLog = runtime.log.mock.calls.at(-1)?.[0];
+        const urlLine = typeof lastLog === "string" ? lastLog : String(lastLog ?? "");
+        const urlMatch = urlLine.match(/https?:\/\/\S+/)?.[0] ?? "";
+        const state = urlMatch ? new URL(urlMatch).searchParams.get("state") : null;
+        if (!state) {
+          throw new Error("missing state in oauth URL");
+        }
+        return `?code=code_manual&state=${state}`;
       }
-      return `http://127.0.0.1:1456/oauth-callback?code=code_manual&state=${state}`;
+      return "code_manual";
     });
     const select: WizardPrompter["select"] = vi.fn(
       async (params) => params.options[0]?.value as never,
@@ -1116,19 +1128,6 @@ describe("applyAuthChoice", () => {
       confirm: vi.fn(async () => false),
       progress: vi.fn(() => ({ update: noop, stop: noop })),
     };
-    const runtime: RuntimeEnv = {
-      log: vi.fn((message: string) => {
-        const firstUrl = message.match(/https?:\/\/\S+/)?.[0];
-        if (firstUrl) {
-          oauthUrl = firstUrl;
-        }
-      }),
-      error: vi.fn(),
-      exit: vi.fn((code: number) => {
-        throw new Error(`exit:${code}`);
-      }),
-    };
-
     const result = await applyAuthChoice({
       authChoice: "chutes",
       config: {},

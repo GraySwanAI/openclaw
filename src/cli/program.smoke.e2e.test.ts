@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   configureCommand,
+  configureCommandFromSectionsArg,
   ensureConfigReady,
   installBaseProgramMocks,
   installSmokeProgramMocks,
@@ -96,7 +97,8 @@ describe("cli program (smoke)", () => {
   it("runs config alias as configure", async () => {
     const program = buildProgram();
     await program.parseAsync(["config"], { from: "user" });
-    expect(configureCommand).toHaveBeenCalled();
+    expect(configureCommandFromSectionsArg).toHaveBeenCalledWith([], runtime);
+    expect(configureCommand).not.toHaveBeenCalled();
   });
 
   it("runs setup without wizard flags", async () => {
