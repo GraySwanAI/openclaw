@@ -138,7 +138,7 @@ export function createProcessTool(
         eof?: boolean;
         offset?: number;
         limit?: number;
-        timeout?: number | string;
+        timeout?: unknown;
       };
 
       if (params.action === "list") {
