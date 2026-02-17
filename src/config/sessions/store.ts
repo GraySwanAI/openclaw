@@ -56,7 +56,7 @@ function isSessionStoreCacheValid(entry: SessionStoreCacheEntry): boolean {
   return now - entry.loadedAt <= ttl;
 }
 
-function invalidateSessionStoreCache(storePath: string): void {
+export function invalidateSessionStoreCache(storePath: string): void {
   SESSION_STORE_CACHE.delete(storePath);
 }
 

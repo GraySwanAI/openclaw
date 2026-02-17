@@ -3,6 +3,7 @@ import { Routes } from "discord-api-types/v10";
 import fs from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DiscordExecApprovalConfig } from "../../config/types.discord.js";
+import { invalidateSessionStoreCache } from "../../config/sessions.js";
 import {
   buildExecApprovalCustomId,
   extractDiscordChannelId,
@@ -21,6 +22,7 @@ const writeStore = (store: Record<string, unknown>) => {
 
 beforeEach(() => {
   writeStore({});
+  invalidateSessionStoreCache(STORE_PATH);
 });
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
@@ -305,6 +307,7 @@ describe("DiscordExecApprovalHandler.shouldHandle", () => {
         lastAccountId: "secondary",
       },
     });
+    invalidateSessionStoreCache(STORE_PATH);
     const handler = createHandler({ enabled: true, approvers: ["123"] }, "default");
     expect(handler.shouldHandle(createRequest())).toBe(false);
     const matching = createHandler({ enabled: true, approvers: ["123"] }, "secondary");
