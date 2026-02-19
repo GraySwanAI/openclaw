@@ -1,7 +1,5 @@
-import { Type } from "@sinclair/typebox";
 import crypto from "node:crypto";
-import type { SessionEntry } from "../../config/sessions.js";
-import type { AnyAgentTool } from "./common.js";
+import { Type } from "@sinclair/typebox";
 import { clearSessionQueues } from "../../auto-reply/reply/queue.js";
 import {
   resolveSubagentLabel,
@@ -10,6 +8,7 @@ import {
   type SubagentTargetResolution,
 } from "../../auto-reply/reply/subagents-utils.js";
 import { loadConfig } from "../../config/config.js";
+import type { SessionEntry } from "../../config/sessions.js";
 import { loadSessionStore, resolveStorePath, updateSessionStore } from "../../config/sessions.js";
 import { callGateway } from "../../gateway/call.js";
 import { logVerbose } from "../../globals.js";
@@ -37,6 +36,7 @@ import {
   replaceSubagentRunAfterSteer,
   type SubagentRunRecord,
 } from "../subagent-registry.js";
+import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readNumberParam, readStringParam } from "./common.js";
 import { resolveInternalSessionKey, resolveMainSessionAlias } from "./sessions-helpers.js";
 

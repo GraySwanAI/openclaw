@@ -1,16 +1,16 @@
+import { resolveChannelDefaultAccountId } from "../channels/plugins/helpers.js";
 import type { listChannelPlugins } from "../channels/plugins/index.js";
 import type { ChannelId } from "../channels/plugins/types.js";
-import type { OpenClawConfig } from "../config/config.js";
-import type { SecurityAuditFinding, SecurityAuditSeverity } from "./audit.js";
-import { resolveChannelDefaultAccountId } from "../channels/plugins/helpers.js";
 import {
   isNumericTelegramUserId,
   normalizeTelegramAllowFromEntry,
 } from "../channels/telegram/allow-from.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import { resolveNativeCommandsEnabled, resolveNativeSkillsEnabled } from "../config/commands.js";
+import type { OpenClawConfig } from "../config/config.js";
 import { readChannelAllowFromStore } from "../pairing/pairing-store.js";
 import { normalizeStringEntries } from "../shared/string-normalization.js";
+import type { SecurityAuditFinding, SecurityAuditSeverity } from "./audit.js";
 import { resolveDmAllowState } from "./dm-policy-shared.js";
 
 function normalizeAllowFromList(list: Array<string | number> | undefined | null): string[] {
@@ -226,8 +226,12 @@ export async function collectChannelSecurityFindings(params: {
 
     if (plugin.id === "slack") {
       const slackCfg =
-        (account as { config?: Record<string, unknown>; dm?: Record<string, unknown> } | null)
-          ?.config ?? ({} as Record<string, unknown>);
+        (
+          account as {
+            config?: Record<string, unknown>;
+            dm?: Record<string, unknown>;
+          } | null
+        )?.config ?? ({} as Record<string, unknown>);
       const nativeEnabled = resolveNativeCommandsEnabled({
         providerId: "slack",
         providerSetting: coerceNativeSetting(
@@ -260,7 +264,10 @@ export async function collectChannelSecurityFindings(params: {
         } else {
           const allowFromRaw = (
             account as
-              | { config?: { allowFrom?: unknown }; dm?: { allowFrom?: unknown } }
+              | {
+                  config?: { allowFrom?: unknown };
+                  dm?: { allowFrom?: unknown };
+                }
               | null
               | undefined
           )?.config?.allowFrom;
@@ -470,8 +477,7 @@ export async function collectChannelSecurityFindings(params: {
 
       if (!hasAnySenderAllowlist) {
         const providerSetting = (telegramCfg.commands as { nativeSkills?: unknown } | undefined)
-          // oxlint-disable-next-line typescript/no-explicit-any
-          ?.nativeSkills as any;
+          ?.nativeSkills;
         const skillsEnabled = resolveNativeSkillsEnabled({
           providerId: "telegram",
           providerSetting,

@@ -2,7 +2,6 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { BrowserRouteContext } from "../server-context.js";
-import type { BrowserRouteRegistrar } from "./types.js";
 import {
   readBody,
   resolveTargetIdFromBody,
@@ -10,6 +9,7 @@ import {
   withPlaywrightRouteContext,
 } from "./agent.shared.js";
 import { DEFAULT_TRACE_DIR, resolvePathWithinRoot } from "./path-output.js";
+import type { BrowserRouteRegistrar } from "./types.js";
 import { toBoolean, toStringOrEmpty } from "./utils.js";
 
 export function registerBrowserAgentDebugRoutes(

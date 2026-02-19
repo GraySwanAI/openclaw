@@ -1,5 +1,5 @@
-import type { GatewayServiceRenderArgs } from "./service-types.js";
 import { splitArgsPreservingQuotes } from "./arg-split.js";
+import type { GatewayServiceRenderArgs } from "./service-types.js";
 
 function systemdEscapeArg(value: string): string {
   if (!/[\\s"\\\\]/.test(value)) {

@@ -6,11 +6,11 @@ import type {
 } from "@mariozechner/pi-agent-core";
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import type { OpenClawConfig } from "../config/config.js";
-import type { PluginHookToolContext } from "../plugins/types.js";
-import type { ClientToolDefinition } from "./pi-embedded-runner/run/params.js";
 import { logDebug, logError } from "../logger.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
+import type { PluginHookToolContext } from "../plugins/types.js";
 import { isPlainObject } from "../utils.js";
+import type { ClientToolDefinition } from "./pi-embedded-runner/run/params.js";
 import {
   consumeAdjustedParamsForToolCall,
   markAfterToolCallHookHandled,

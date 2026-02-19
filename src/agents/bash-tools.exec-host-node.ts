@@ -1,6 +1,5 @@
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import crypto from "node:crypto";
-import type { ExecToolDetails } from "./bash-tools.exec-types.js";
+import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import {
   type ExecApprovalsFile,
   type ExecAsk,
@@ -19,6 +18,7 @@ import {
   createApprovalSlug,
   emitExecSystemEvent,
 } from "./bash-tools.exec-runtime.js";
+import type { ExecToolDetails } from "./bash-tools.exec-types.js";
 import { callGatewayTool } from "./tools/gateway.js";
 import { listNodes, resolveNodeIdFromList } from "./tools/nodes-utils.js";
 
