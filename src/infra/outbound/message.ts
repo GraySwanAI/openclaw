@@ -31,6 +31,8 @@ export type MessageGatewayOptions = {
 type MessageSendParams = {
   to: string;
   content: string;
+  /** Active agent id for per-agent outbound media root scoping. */
+  agentId?: string;
   channel?: string;
   mediaUrl?: string;
   mediaUrls?: string[];
@@ -102,8 +104,15 @@ export type MessagePollResult = {
 };
 
 function resolveGatewayOptions(opts?: MessageGatewayOptions) {
+  // Security: backend callers (tools/agents) must not accept user-controlled gateway URLs.
+  // Use config-derived gateway target only.
+  const url =
+    opts?.mode === GATEWAY_CLIENT_MODES.BACKEND ||
+    opts?.clientName === GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT
+      ? undefined
+      : opts?.url;
   return {
-    url: opts?.url,
+    url,
     token: opts?.token,
     timeoutMs:
       typeof opts?.timeoutMs === "number" && Number.isFinite(opts.timeoutMs)
@@ -172,6 +181,7 @@ export async function sendMessage(params: MessageSendParams): Promise<MessageSen
       cfg,
       channel: outboundChannel,
       to: resolvedTarget.to,
+      agentId: params.agentId,
       accountId: params.accountId,
       payloads: normalizedPayloads,
       replyToId: params.replyToId,

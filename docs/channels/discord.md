@@ -91,11 +91,11 @@ Token resolution is account-aware. Config token values win over env fallback. `D
 
 <Tabs>
   <Tab title="DM policy">
-    `channels.discord.dm.policy` controls DM access:
+    `channels.discord.dmPolicy` controls DM access (legacy: `channels.discord.dm.policy`):
 
     - `pairing` (default)
     - `allowlist`
-    - `open` (requires `channels.discord.dm.allowFrom` to include `"*"`)
+    - `open` (requires `channels.discord.allowFrom` to include `"*"`; legacy: `channels.discord.dm.allowFrom`)
     - `disabled`
 
     If DM policy is not open, unknown users are blocked (or prompted for pairing in `pairing` mode).
@@ -482,6 +482,30 @@ Default gate behavior:
 | moderation                                                                                                                                                               | disabled |
 | presence                                                                                                                                                                 | disabled |
 
+## Components v2 UI
+
+OpenClaw uses Discord components v2 for exec approvals and cross-context markers. Discord message actions can also accept `components` for custom UI (advanced; requires Carbon component instances), while legacy `embeds` remain available but are not recommended.
+
+- `channels.discord.ui.components.accentColor` sets the accent color used by Discord component containers (hex).
+- Set per account with `channels.discord.accounts.<id>.ui.components.accentColor`.
+- `embeds` are ignored when components v2 are present.
+
+Example:
+
+```json5
+{
+  channels: {
+    discord: {
+      ui: {
+        components: {
+          accentColor: "#5865F2",
+        },
+      },
+    },
+  },
+}
+```
+
 ## Voice messages
 
 Discord voice messages show a waveform preview and require OGG/Opus audio plus metadata. OpenClaw generates the waveform automatically, but it needs `ffmpeg` and `ffprobe` available on the gateway host to inspect and convert audio files.
@@ -545,7 +569,7 @@ openclaw logs --follow
   <Accordion title="DM and pairing issues">
 
     - DM disabled: `channels.discord.dm.enabled=false`
-    - DM policy disabled: `channels.discord.dm.policy="disabled"`
+    - DM policy disabled: `channels.discord.dmPolicy="disabled"` (legacy: `channels.discord.dm.policy`)
     - awaiting pairing approval in `pairing` mode
 
   </Accordion>
@@ -574,6 +598,7 @@ High-signal Discord fields:
 - media/retry: `mediaMaxMb`, `retry`
 - actions: `actions.*`
 - presence: `activity`, `status`, `activityType`, `activityUrl`
+- UI: `ui.components.accentColor`
 - features: `pluralkit`, `execApprovals`, `intents`, `agentComponents`, `heartbeat`, `responsePrefix`
 
 ## Safety and operations

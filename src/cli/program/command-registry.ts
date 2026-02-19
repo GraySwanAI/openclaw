@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import type { ProgramContext } from "./context.js";
-import { buildParseArgv, getPrimaryCommand, hasHelpOrVersion } from "../argv.js";
-import { resolveActionArgs } from "./helpers.js";
+import { getPrimaryCommand, hasHelpOrVersion } from "../argv.js";
+import { reparseProgramFromActionArgs } from "./action-reparse.js";
 import { registerSubCliCommands } from "./register.subclis.js";
 
 type CommandRegisterParams = {
@@ -148,21 +148,16 @@ function registerLazyCoreCommand(
   placeholder.allowUnknownOption(true);
   placeholder.allowExcessArguments(true);
   placeholder.action(async (...actionArgs) => {
-    removeCommand(program, placeholder);
+    // Some registrars install multiple top-level commands (e.g. status/health/sessions).
+    // Remove placeholders/old registrations for all names in the entry before re-registering.
+    for (const cmd of entry.commands) {
+      const existing = program.commands.find((c) => c.name() === cmd.name);
+      if (existing) {
+        removeCommand(program, existing);
+      }
+    }
     await entry.register({ program, ctx, argv: process.argv });
-    const actionCommand = actionArgs.at(-1) as Command | undefined;
-    const root = actionCommand?.parent ?? program;
-    const rawArgs = (root as Command & { rawArgs?: string[] }).rawArgs;
-    const actionArgsList = resolveActionArgs(actionCommand);
-    const fallbackArgv = actionCommand?.name()
-      ? [actionCommand.name(), ...actionArgsList]
-      : actionArgsList;
-    const parseArgv = buildParseArgv({
-      programName: program.name(),
-      rawArgs,
-      fallbackArgv,
-    });
-    await program.parseAsync(parseArgv);
+    await reparseProgramFromActionArgs(program, actionArgs);
   });
 }
 

@@ -1,12 +1,16 @@
 import type { AgentEvent, AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { PluginHookAfterToolCallEvent } from "../plugins/types.js";
-import type { EmbeddedPiSubscribeContext } from "./pi-embedded-subscribe.handlers.types.js";
+import type {
+  EmbeddedPiSubscribeContext,
+  ToolCallSummary,
+} from "./pi-embedded-subscribe.handlers.types.js";
 import { emitAgentEvent } from "../infra/agent-events.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import { normalizeTextForComparison } from "./pi-embedded-helpers.js";
 import { isMessagingTool, isMessagingToolSendAction } from "./pi-embedded-messaging.js";
 import {
   extractToolErrorMessage,
+  extractToolResultMediaPaths,
   extractToolResultText,
   extractMessagingToolSend,
   isToolResultError,
@@ -14,10 +18,21 @@ import {
 } from "./pi-embedded-subscribe.tools.js";
 import { inferToolMetaFromArgs } from "./pi-embedded-utils.js";
 import { consumeAfterToolCallHookHandled } from "./pi-tools.before-tool-call.js";
+import { buildToolMutationState, isSameToolMutationAction } from "./tool-mutation.js";
 import { normalizeToolName } from "./tool-policy.js";
 
 /** Track tool execution start times and args for after_tool_call hook */
 const toolStartData = new Map<string, { startTime: number; args: unknown }>();
+
+function buildToolCallSummary(toolName: string, args: unknown, meta?: string): ToolCallSummary {
+  const mutation = buildToolMutationState(toolName, args, meta);
+  return {
+    meta,
+    mutatingAction: mutation.mutatingAction,
+    actionFingerprint: mutation.actionFingerprint,
+  };
+}
+
 function extendExecMeta(toolName: string, args: unknown, meta?: string): string | undefined {
   const normalized = toolName.trim().toLowerCase();
   if (normalized !== "exec" && normalized !== "bash") {
@@ -61,7 +76,13 @@ export async function handleToolExecutionStart(
 
   if (toolName === "read") {
     const record = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
-    const filePath = typeof record.path === "string" ? record.path.trim() : "";
+    const filePathValue =
+      typeof record.path === "string"
+        ? record.path
+        : typeof record.file_path === "string"
+          ? record.file_path
+          : "";
+    const filePath = filePathValue.trim();
     if (!filePath) {
       const argsPreview = typeof args === "string" ? args.slice(0, 200) : undefined;
       ctx.log.warn(
@@ -71,7 +92,7 @@ export async function handleToolExecutionStart(
   }
 
   const meta = extendExecMeta(toolName, args, inferToolMetaFromArgs(toolName, args));
-  ctx.state.toolMetaById.set(toolCallId, meta);
+  ctx.state.toolMetaById.set(toolCallId, buildToolCallSummary(toolName, args, meta));
   ctx.log.debug(
     `embedded run tool start: runId=${ctx.params.runId} tool=${toolName} toolCallId=${toolCallId}`,
   );
@@ -168,7 +189,8 @@ export async function handleToolExecutionEnd(
   const result = evt.result;
   const isToolError = isError || isToolResultError(result);
   const sanitizedResult = sanitizeToolResult(result);
-  const meta = ctx.state.toolMetaById.get(toolCallId);
+  const callSummary = ctx.state.toolMetaById.get(toolCallId);
+  const meta = callSummary?.meta;
   ctx.state.toolMetas.push({ toolName, meta });
   ctx.state.toolMetaById.delete(toolCallId);
   ctx.state.toolSummaryById.delete(toolCallId);
@@ -178,7 +200,24 @@ export async function handleToolExecutionEnd(
       toolName,
       meta,
       error: errorMessage,
+      mutatingAction: callSummary?.mutatingAction,
+      actionFingerprint: callSummary?.actionFingerprint,
     };
+  } else if (ctx.state.lastToolError) {
+    // Keep unresolved mutating failures until the same action succeeds.
+    if (ctx.state.lastToolError.mutatingAction) {
+      if (
+        isSameToolMutationAction(ctx.state.lastToolError, {
+          toolName,
+          meta,
+          actionFingerprint: callSummary?.actionFingerprint,
+        })
+      ) {
+        ctx.state.lastToolError = undefined;
+      }
+    } else {
+      ctx.state.lastToolError = undefined;
+    }
   }
 
   // Commit messaging tool text on success, discard on error.
@@ -232,6 +271,20 @@ export async function handleToolExecutionEnd(
     const outputText = extractToolResultText(sanitizedResult);
     if (outputText) {
       ctx.emitToolOutput(toolName, meta, outputText);
+    }
+  }
+
+  // Deliver media from tool results when the verbose emitToolOutput path is off.
+  // When shouldEmitToolOutput() is true, emitToolOutput already delivers media
+  // via parseReplyDirectives (MEDIA: text extraction), so skip to avoid duplicates.
+  if (ctx.params.onToolResult && !isToolError && !ctx.shouldEmitToolOutput()) {
+    const mediaPaths = extractToolResultMediaPaths(result);
+    if (mediaPaths.length > 0) {
+      try {
+        void ctx.params.onToolResult({ mediaUrls: mediaPaths });
+      } catch {
+        // ignore delivery failures
+      }
     }
   }
 

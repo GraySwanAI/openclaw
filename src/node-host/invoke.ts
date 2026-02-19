@@ -135,33 +135,22 @@ function resolveExecAsk(value?: string): ExecAsk {
   return value === "off" || value === "on-miss" || value === "always" ? value : "on-miss";
 }
 
-function sanitizeEnv(
+export function sanitizeEnv(
   overrides?: Record<string, string> | null,
 ): Record<string, string> | undefined {
   if (!overrides) {
     return undefined;
   }
   const merged = { ...process.env } as Record<string, string>;
-  const basePath = process.env.PATH ?? DEFAULT_NODE_PATH;
   for (const [rawKey, value] of Object.entries(overrides)) {
     const key = rawKey.trim();
     if (!key) {
       continue;
     }
     const upper = key.toUpperCase();
+    // PATH is part of the security boundary (command resolution + safe-bin checks). Never allow
+    // request-scoped PATH overrides from agents/gateways.
     if (upper === "PATH") {
-      const trimmed = value.trim();
-      if (!trimmed) {
-        continue;
-      }
-      if (!basePath || trimmed === basePath) {
-        merged[key] = trimmed;
-        continue;
-      }
-      const suffix = `${path.delimiter}${basePath}`;
-      if (trimmed.endsWith(suffix)) {
-        merged[key] = trimmed;
-      }
       continue;
     }
     if (blockedEnvKeys.has(upper)) {
@@ -345,6 +334,39 @@ function buildExecEventPayload(payload: ExecEventPayload): ExecEventPayload {
   }
   const { text } = truncateOutput(trimmed, OUTPUT_EVENT_TAIL);
   return { ...payload, output: text };
+}
+
+async function sendExecFinishedEvent(params: {
+  client: GatewayClient;
+  sessionKey: string;
+  runId: string;
+  cmdText: string;
+  result: {
+    stdout?: string;
+    stderr?: string;
+    error?: string | null;
+    exitCode?: number | null;
+    timedOut?: boolean;
+    success?: boolean;
+  };
+}) {
+  const combined = [params.result.stdout, params.result.stderr, params.result.error]
+    .filter(Boolean)
+    .join("\n");
+  await sendNodeEvent(
+    params.client,
+    "exec.finished",
+    buildExecEventPayload({
+      sessionKey: params.sessionKey,
+      runId: params.runId,
+      host: "node",
+      command: params.cmdText,
+      exitCode: params.result.exitCode ?? undefined,
+      timedOut: params.result.timedOut,
+      success: params.result.success,
+      output: combined,
+    }),
+  );
 }
 
 async function runViaMacAppExecHost(params: {
@@ -635,21 +657,7 @@ export async function handleInvoke(
       return;
     } else {
       const result: ExecHostRunResult = response.payload;
-      const combined = [result.stdout, result.stderr, result.error].filter(Boolean).join("\n");
-      await sendNodeEvent(
-        client,
-        "exec.finished",
-        buildExecEventPayload({
-          sessionKey,
-          runId,
-          host: "node",
-          command: cmdText,
-          exitCode: result.exitCode,
-          timedOut: result.timedOut,
-          success: result.success,
-          output: combined,
-        }),
-      );
+      await sendExecFinishedEvent({ client, sessionKey, runId, cmdText, result });
       await sendInvokeResult(client, frame, {
         ok: true,
         payloadJSON: JSON.stringify(result),
@@ -801,21 +809,7 @@ export async function handleInvoke(
       result.stdout = `${result.stdout}\n${suffix}`;
     }
   }
-  const combined = [result.stdout, result.stderr, result.error].filter(Boolean).join("\n");
-  await sendNodeEvent(
-    client,
-    "exec.finished",
-    buildExecEventPayload({
-      sessionKey,
-      runId,
-      host: "node",
-      command: cmdText,
-      exitCode: result.exitCode,
-      timedOut: result.timedOut,
-      success: result.success,
-      output: combined,
-    }),
-  );
+  await sendExecFinishedEvent({ client, sessionKey, runId, cmdText, result });
 
   await sendInvokeResult(client, frame, {
     ok: true,

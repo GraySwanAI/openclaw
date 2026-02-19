@@ -9,6 +9,7 @@ const hookMocks = vi.hoisted(() => ({
   },
   isToolWrappedWithBeforeToolCallHook: vi.fn(() => false),
   consumeAdjustedParamsForToolCall: vi.fn(() => undefined),
+  markAfterToolCallHookHandled: vi.fn(() => {}),
   runBeforeToolCallHook: vi.fn(async ({ params }: { params: unknown }) => ({
     blocked: false,
     params,
@@ -21,6 +22,7 @@ vi.mock("../plugins/hook-runner-global.js", () => ({
 
 vi.mock("./pi-tools.before-tool-call.js", () => ({
   consumeAdjustedParamsForToolCall: hookMocks.consumeAdjustedParamsForToolCall,
+  markAfterToolCallHookHandled: hookMocks.markAfterToolCallHookHandled,
   isToolWrappedWithBeforeToolCallHook: hookMocks.isToolWrappedWithBeforeToolCallHook,
   runBeforeToolCallHook: hookMocks.runBeforeToolCallHook,
 }));
@@ -34,6 +36,7 @@ describe("pi tool definition adapter after_tool_call", () => {
     hookMocks.isToolWrappedWithBeforeToolCallHook.mockReturnValue(false);
     hookMocks.consumeAdjustedParamsForToolCall.mockReset();
     hookMocks.consumeAdjustedParamsForToolCall.mockReturnValue(undefined);
+    hookMocks.markAfterToolCallHookHandled.mockReset();
     hookMocks.runBeforeToolCallHook.mockReset();
     hookMocks.runBeforeToolCallHook.mockImplementation(async ({ params }) => ({
       blocked: false,
@@ -61,12 +64,13 @@ describe("pi tool definition adapter after_tool_call", () => {
     expect(result.details).toMatchObject({ ok: true });
     expect(hookMocks.runner.runAfterToolCall).toHaveBeenCalledTimes(1);
     expect(hookMocks.runner.runAfterToolCall).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         toolName: "read",
+        toolCallId: "call-ok",
         params: { mode: "safe" },
         result,
-      },
-      { toolName: "read" },
+      }),
+      expect.objectContaining({ toolName: "read" }),
     );
   });
 
@@ -93,12 +97,13 @@ describe("pi tool definition adapter after_tool_call", () => {
     expect(result.details).toMatchObject({ ok: true });
     expect(hookMocks.runBeforeToolCallHook).not.toHaveBeenCalled();
     expect(hookMocks.runner.runAfterToolCall).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         toolName: "read",
+        toolCallId: "call-ok-wrapped",
         params: { mode: "safe" },
         result,
-      },
-      { toolName: "read" },
+      }),
+      expect.objectContaining({ toolName: "read" }),
     );
   });
 
@@ -124,12 +129,17 @@ describe("pi tool definition adapter after_tool_call", () => {
     });
     expect(hookMocks.runner.runAfterToolCall).toHaveBeenCalledTimes(1);
     expect(hookMocks.runner.runAfterToolCall).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         toolName: "exec",
+        toolCallId: "call-err",
         params: { cmd: "ls" },
-        error: "boom",
-      },
-      { toolName: "exec" },
+        result: expect.objectContaining({
+          details: expect.objectContaining({
+            error: "boom",
+          }),
+        }),
+      }),
+      expect.objectContaining({ toolName: "exec" }),
     );
   });
 
