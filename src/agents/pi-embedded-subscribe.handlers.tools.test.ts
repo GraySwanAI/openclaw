@@ -26,6 +26,8 @@ function createTestContext(): {
       onBlockReplyFlush,
       onAgentEvent: undefined,
       onToolResult: undefined,
+      session: {} as never,
+      sessionKey: undefined,
     },
     flushBlockReplyBuffer: vi.fn(),
     hookRunner: undefined,

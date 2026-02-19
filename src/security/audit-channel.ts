@@ -8,6 +8,7 @@ import {
 import { formatCliCommand } from "../cli/command-format.js";
 import { resolveNativeCommandsEnabled, resolveNativeSkillsEnabled } from "../config/commands.js";
 import type { OpenClawConfig } from "../config/config.js";
+import type { NativeCommandsSetting } from "../config/types.messages.js";
 import { readChannelAllowFromStore } from "../pairing/pairing-store.js";
 import { normalizeStringEntries } from "../shared/string-normalization.js";
 import type { SecurityAuditFinding, SecurityAuditSeverity } from "./audit.js";
@@ -477,7 +478,7 @@ export async function collectChannelSecurityFindings(params: {
 
       if (!hasAnySenderAllowlist) {
         const providerSetting = (telegramCfg.commands as { nativeSkills?: unknown } | undefined)
-          ?.nativeSkills;
+          ?.nativeSkills as NativeCommandsSetting | undefined;
         const skillsEnabled = resolveNativeSkillsEnabled({
           providerId: "telegram",
           providerSetting,

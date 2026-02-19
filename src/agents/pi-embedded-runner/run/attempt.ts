@@ -531,7 +531,7 @@ export async function runEmbeddedAttempt(
         name: string;
         params: Record<string, unknown>;
       } | null = null;
-      const clientToolLoopDetection = resolveToolLoopDetectionConfig({
+      const _clientToolLoopDetection = resolveToolLoopDetectionConfig({
         cfg: params.config,
         agentId: sessionAgentId,
       });
@@ -545,7 +545,6 @@ export async function runEmbeddedAttempt(
               guardrails: toolHookOptions,
               agentId: sessionAgentId,
               sessionKey: params.sessionKey,
-              loopDetection: clientToolLoopDetection,
             },
           )
         : [];
@@ -1096,6 +1095,7 @@ export async function runEmbeddedAttempt(
             }
           } catch (err) {
             promptError = err;
+            promptErrorSource = "prompt";
           } finally {
             log.debug(
               `embedded run prompt end: runId=${params.runId} sessionId=${params.sessionId} durationMs=${Date.now() - promptStartedAt}`,
