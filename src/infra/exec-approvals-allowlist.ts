@@ -123,6 +123,7 @@ function evaluateSegments(
     cwd?: string;
     skillBins?: Set<string>;
     autoAllowSkills?: boolean;
+    fileExists?: (filePath: string) => boolean;
   },
 ): { satisfied: boolean; matches: ExecAllowlistEntry[] } {
   const matches: ExecAllowlistEntry[] = [];
@@ -143,6 +144,7 @@ function evaluateSegments(
       resolution: segment.resolution,
       safeBins: params.safeBins,
       cwd: params.cwd,
+      fileExists: params.fileExists,
     });
     const skillAllow =
       allowSkills && segment.resolution?.executableName
@@ -161,6 +163,7 @@ export function evaluateExecAllowlist(params: {
   cwd?: string;
   skillBins?: Set<string>;
   autoAllowSkills?: boolean;
+  fileExists?: (filePath: string) => boolean;
 }): ExecAllowlistEvaluation {
   const allowlistMatches: ExecAllowlistEntry[] = [];
   if (!params.analysis.ok || params.analysis.segments.length === 0) {
@@ -176,6 +179,7 @@ export function evaluateExecAllowlist(params: {
         cwd: params.cwd,
         skillBins: params.skillBins,
         autoAllowSkills: params.autoAllowSkills,
+        fileExists: params.fileExists,
       });
       if (!result.satisfied) {
         return { allowlistSatisfied: false, allowlistMatches: [] };
@@ -192,6 +196,7 @@ export function evaluateExecAllowlist(params: {
     cwd: params.cwd,
     skillBins: params.skillBins,
     autoAllowSkills: params.autoAllowSkills,
+    fileExists: params.fileExists,
   });
   return { allowlistSatisfied: result.satisfied, allowlistMatches: result.matches };
 }
@@ -215,6 +220,7 @@ export function evaluateShellAllowlist(params: {
   skillBins?: Set<string>;
   autoAllowSkills?: boolean;
   platform?: string | null;
+  fileExists?: (filePath: string) => boolean;
 }): ExecAllowlistAnalysis {
   const chainParts = isWindowsPlatform(params.platform) ? null : splitCommandChain(params.command);
   if (!chainParts) {
@@ -239,6 +245,7 @@ export function evaluateShellAllowlist(params: {
       cwd: params.cwd,
       skillBins: params.skillBins,
       autoAllowSkills: params.autoAllowSkills,
+      fileExists: params.fileExists,
     });
     return {
       analysisOk: true,
@@ -275,6 +282,7 @@ export function evaluateShellAllowlist(params: {
       cwd: params.cwd,
       skillBins: params.skillBins,
       autoAllowSkills: params.autoAllowSkills,
+      fileExists: params.fileExists,
     });
     allowlistMatches.push(...evaluation.allowlistMatches);
     if (!evaluation.allowlistSatisfied) {
