@@ -423,6 +423,7 @@ describe("exec approvals allowlist evaluation", () => {
       allowlist: [],
       safeBins: normalizeSafeBins(["jq"]),
       cwd: "/tmp",
+      fileExists: () => false,
     });
     expect(result.allowlistSatisfied).toBe(true);
     expect(result.allowlistMatches).toEqual([]);
@@ -615,6 +616,7 @@ describe("exec approvals node host allowlist check", () => {
       resolution,
       safeBins: normalizeSafeBins(["jq"]),
       cwd: "/tmp",
+      fileExists: () => false,
     });
     expect(safe).toBe(true);
   });
