@@ -6,6 +6,7 @@ import {
   normalizeApiKeyInput,
   validateApiKeyInput,
 } from "./auth-choice.api-key.js";
+import { createAuthChoiceAgentModelNoter } from "./auth-choice.apply-helpers.js";
 import { applyDefaultModelChoice } from "./auth-choice.default-model.js";
 import { isRemoteEnvironment } from "./oauth-env.js";
 import { applyAuthProfileConfig, writeOAuthCredentials } from "./onboard-auth.js";
@@ -24,6 +25,7 @@ import {
 export async function applyAuthChoiceOpenAI(
   params: ApplyAuthChoiceParams,
 ): Promise<ApplyAuthChoiceResult | null> {
+  const noteAgentModel = createAuthChoiceAgentModelNoter(params);
   let authChoice = params.authChoice;
   if (authChoice === "apiKey" && params.opts?.tokenProvider === "openai") {
     authChoice = "openai-api-key";
@@ -32,14 +34,21 @@ export async function applyAuthChoiceOpenAI(
   if (authChoice === "openai-api-key") {
     let nextConfig = params.config;
     let agentModelOverride: string | undefined;
-    const noteAgentModel = async (model: string) => {
-      if (!params.agentId) {
-        return;
-      }
-      await params.prompter.note(
-        `Default model set to ${model} for agent "${params.agentId}".`,
-        "Model configured",
-      );
+
+    const applyOpenAiDefaultModelChoice = async (): Promise<ApplyAuthChoiceResult> => {
+      const applied = await applyDefaultModelChoice({
+        config: nextConfig,
+        setDefaultModel: params.setDefaultModel,
+        defaultModel: OPENAI_DEFAULT_MODEL,
+        applyDefaultConfig: applyOpenAIConfig,
+        applyProviderConfig: applyOpenAIProviderConfig,
+        noteDefault: OPENAI_DEFAULT_MODEL,
+        noteAgentModel,
+        prompter: params.prompter,
+      });
+      nextConfig = applied.config;
+      agentModelOverride = applied.agentModelOverride ?? agentModelOverride;
+      return { config: nextConfig, agentModelOverride };
     };
 
     const envKey = resolveEnvApiKey("openai");
@@ -60,19 +69,7 @@ export async function applyAuthChoiceOpenAI(
           `Copied OPENAI_API_KEY to ${result.path} for launchd compatibility.`,
           "OpenAI API key",
         );
-        const applied = await applyDefaultModelChoice({
-          config: nextConfig,
-          setDefaultModel: params.setDefaultModel,
-          defaultModel: OPENAI_DEFAULT_MODEL,
-          applyDefaultConfig: applyOpenAIConfig,
-          applyProviderConfig: applyOpenAIProviderConfig,
-          noteDefault: OPENAI_DEFAULT_MODEL,
-          noteAgentModel,
-          prompter: params.prompter,
-        });
-        nextConfig = applied.config;
-        agentModelOverride = applied.agentModelOverride ?? agentModelOverride;
-        return { config: nextConfig, agentModelOverride };
+        return await applyOpenAiDefaultModelChoice();
       }
     }
 
@@ -96,33 +93,12 @@ export async function applyAuthChoiceOpenAI(
       `Saved OPENAI_API_KEY to ${result.path} for launchd compatibility.`,
       "OpenAI API key",
     );
-    const applied = await applyDefaultModelChoice({
-      config: nextConfig,
-      setDefaultModel: params.setDefaultModel,
-      defaultModel: OPENAI_DEFAULT_MODEL,
-      applyDefaultConfig: applyOpenAIConfig,
-      applyProviderConfig: applyOpenAIProviderConfig,
-      noteDefault: OPENAI_DEFAULT_MODEL,
-      noteAgentModel,
-      prompter: params.prompter,
-    });
-    nextConfig = applied.config;
-    agentModelOverride = applied.agentModelOverride ?? agentModelOverride;
-    return { config: nextConfig, agentModelOverride };
+    return await applyOpenAiDefaultModelChoice();
   }
 
   if (params.authChoice === "openai-codex") {
     let nextConfig = params.config;
     let agentModelOverride: string | undefined;
-    const noteAgentModel = async (model: string) => {
-      if (!params.agentId) {
-        return;
-      }
-      await params.prompter.note(
-        `Default model set to ${model} for agent "${params.agentId}".`,
-        "Model configured",
-      );
-    };
 
     let creds;
     try {

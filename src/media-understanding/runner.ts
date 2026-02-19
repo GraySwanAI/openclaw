@@ -23,8 +23,18 @@ import {
   modelSupportsVision,
 } from "../agents/model-catalog.js";
 import { logVerbose, shouldLogVerbose } from "../globals.js";
+import {
+  mergeInboundPathRoots,
+  resolveIMessageAttachmentRoots,
+} from "../media/inbound-path-policy.js";
+import { getDefaultMediaLocalRoots } from "../media/local-roots.js";
 import { runExec } from "../process/exec.js";
-import { MediaAttachmentCache, normalizeAttachments, selectAttachments } from "./attachments.js";
+import {
+  MediaAttachmentCache,
+  type MediaAttachmentCacheOptions,
+  normalizeAttachments,
+  selectAttachments,
+} from "./attachments.js";
 import {
   AUTO_AUDIO_KEY_PROVIDERS,
   AUTO_IMAGE_KEY_PROVIDERS,
@@ -32,6 +42,7 @@ import {
   DEFAULT_IMAGE_MODELS,
 } from "./defaults.js";
 import { isMediaUnderstandingSkipError } from "./errors.js";
+import { fileExists } from "./fs.js";
 import { extractGeminiResponse } from "./output-extract.js";
 import {
   buildMediaUnderstandingRegistry,
@@ -68,8 +79,24 @@ export function normalizeMediaAttachments(ctx: MsgContext): MediaAttachment[] {
   return normalizeAttachments(ctx);
 }
 
-export function createMediaAttachmentCache(attachments: MediaAttachment[]): MediaAttachmentCache {
-  return new MediaAttachmentCache(attachments);
+export function resolveMediaAttachmentLocalRoots(params: {
+  cfg: OpenClawConfig;
+  ctx: MsgContext;
+}): readonly string[] {
+  return mergeInboundPathRoots(
+    getDefaultMediaLocalRoots(),
+    resolveIMessageAttachmentRoots({
+      cfg: params.cfg,
+      accountId: params.ctx.AccountId,
+    }),
+  );
+}
+
+export function createMediaAttachmentCache(
+  attachments: MediaAttachment[],
+  options?: MediaAttachmentCacheOptions,
+): MediaAttachmentCache {
+  return new MediaAttachmentCache(attachments, options);
 }
 
 const binaryCache = new Map<string, Promise<string | null>>();
@@ -173,18 +200,6 @@ async function findBinary(name: string): Promise<string | null> {
 
 async function hasBinary(name: string): Promise<boolean> {
   return Boolean(await findBinary(name));
-}
-
-async function fileExists(filePath?: string | null): Promise<boolean> {
-  if (!filePath) {
-    return false;
-  }
-  try {
-    await fs.stat(filePath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function probeGeminiCli(): Promise<boolean> {
@@ -402,6 +417,44 @@ async function resolveKeyEntry(params: {
   return null;
 }
 
+function resolveImageModelFromAgentDefaults(cfg: OpenClawConfig): MediaUnderstandingModelConfig[] {
+  const imageModel = cfg.agents?.defaults?.imageModel as
+    | { primary?: string; fallbacks?: string[] }
+    | string
+    | undefined;
+  if (!imageModel) {
+    return [];
+  }
+  const refs: string[] = [];
+  if (typeof imageModel === "string") {
+    if (imageModel.trim()) {
+      refs.push(imageModel.trim());
+    }
+  } else {
+    if (imageModel.primary?.trim()) {
+      refs.push(imageModel.primary.trim());
+    }
+    for (const fb of imageModel.fallbacks ?? []) {
+      if (fb?.trim()) {
+        refs.push(fb.trim());
+      }
+    }
+  }
+  const entries: MediaUnderstandingModelConfig[] = [];
+  for (const ref of refs) {
+    const slashIdx = ref.indexOf("/");
+    if (slashIdx <= 0 || slashIdx >= ref.length - 1) {
+      continue;
+    }
+    entries.push({
+      type: "provider",
+      provider: ref.slice(0, slashIdx),
+      model: ref.slice(slashIdx + 1),
+    });
+  }
+  return entries;
+}
+
 async function resolveAutoEntries(params: {
   cfg: OpenClawConfig;
   agentDir?: string;
@@ -417,6 +470,12 @@ async function resolveAutoEntries(params: {
     const localAudio = await resolveLocalAudioEntry();
     if (localAudio) {
       return [localAudio];
+    }
+  }
+  if (params.capability === "image") {
+    const imageModelEntries = resolveImageModelFromAgentDefaults(params.cfg);
+    if (imageModelEntries.length > 0) {
+      return imageModelEntries;
     }
   }
   const gemini = await resolveGeminiCliEntry(params.capability);

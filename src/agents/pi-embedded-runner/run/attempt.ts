@@ -11,7 +11,11 @@ import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
 import { isGuardrailRunId } from "../../../plugins/guardrails-utils.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
-import { isSubagentSessionKey, normalizeAgentId } from "../../../routing/session-key.js";
+import {
+  isCronSessionKey,
+  isSubagentSessionKey,
+  normalizeAgentId,
+} from "../../../routing/session-key.js";
 import { resolveSignalReactionLevel } from "../../../signal/reaction-level.js";
 import { resolveTelegramInlineButtonsScope } from "../../../telegram/inline-buttons.js";
 import { resolveTelegramReactionLevel } from "../../../telegram/reaction-level.js";
@@ -28,6 +32,7 @@ import {
   listChannelSupportedActions,
   resolveChannelMessageToolHints,
 } from "../../channel-tools.js";
+import { DEFAULT_CONTEXT_TOKENS } from "../../defaults.js";
 import { resolveOpenClawDocsPath } from "../../docs-path.js";
 import { isTimeoutError } from "../../failover-error.js";
 import { resolveModelAuthMode } from "../../model-auth.js";
@@ -36,6 +41,7 @@ import { createOllamaStreamFn, OLLAMA_NATIVE_BASE_URL } from "../../ollama-strea
 import {
   isCloudCodeAssistFormatError,
   resolveBootstrapMaxChars,
+  resolveBootstrapTotalMaxChars,
   validateAnthropicTurns,
   validateGeminiTurns,
 } from "../../pi-embedded-helpers.js";
@@ -45,13 +51,16 @@ import {
   resolveCompactionReserveTokensFloor,
 } from "../../pi-settings.js";
 import { toClientToolDefinitions, type ToolHookContext } from "../../pi-tool-definition-adapter.js";
-import { createOpenClawCodingTools } from "../../pi-tools.js";
+import { createOpenClawCodingTools, resolveToolLoopDetectionConfig } from "../../pi-tools.js";
 import { resolveSandboxContext } from "../../sandbox.js";
 import { resolveSandboxRuntimeStatus } from "../../sandbox/runtime-status.js";
 import { repairSessionFileIfNeeded } from "../../session-file-repair.js";
 import { guardSessionManager } from "../../session-tool-result-guard-wrapper.js";
 import { sanitizeToolUseResultPairing } from "../../session-transcript-repair.js";
-import { acquireSessionWriteLock } from "../../session-write-lock.js";
+import {
+  acquireSessionWriteLock,
+  resolveSessionLockMaxHoldFromTimeout,
+} from "../../session-write-lock.js";
 import { detectRuntimeShell } from "../../shell-utils.js";
 import {
   applySkillEnvOverrides,
@@ -89,9 +98,14 @@ import {
   buildEmbeddedSystemPrompt,
   createSystemPromptOverride,
 } from "../system-prompt.js";
+import { installToolResultContextGuard } from "../tool-result-context-guard.js";
 import { splitSdkTools } from "../tool-split.js";
 import { describeUnknownError, mapThinkingLevel } from "../utils.js";
 import { flushPendingToolResultsAfterIdle } from "../wait-for-idle-before-flush.js";
+import {
+  selectCompactionTimeoutSnapshot,
+  shouldFlagCompactionTimeout,
+} from "./compaction-timeout.js";
 import { detectAndLoadPromptImages } from "./images.js";
 
 // Block information for guardrail/hook violations
@@ -207,7 +221,10 @@ export async function runEmbeddedAttempt(
         config: params.config,
         sessionKey: params.sessionKey,
         sessionId: params.sessionId,
-        warn: makeBootstrapWarn({ sessionLabel, warn: (message) => log.warn(message) }),
+        warn: makeBootstrapWarn({
+          sessionLabel,
+          warn: (message) => log.warn(message),
+        }),
       });
     const workspaceNotes = hookAdjustedBootstrapFiles.some(
       (file) => file.name === DEFAULT_BOOTSTRAP_FILENAME && !file.missing,
@@ -247,6 +264,7 @@ export async function runEmbeddedAttempt(
           abortSignal: runAbortController.signal,
           modelProvider: params.model.provider,
           modelId: params.modelId,
+          modelContextWindowTokens: params.model.contextWindow,
           modelAuthMode: resolveModelAuthMode(params.model.provider, params.config),
           currentChannelId: params.currentChannelId,
           currentThreadTs: params.currentThreadTs,
@@ -257,7 +275,10 @@ export async function runEmbeddedAttempt(
             params.requireExplicitMessageTarget ?? isSubagentSessionKey(params.sessionKey),
           disableMessageTool: params.disableMessageTool,
         });
-    const tools = sanitizeToolsForGoogle({ tools: toolsRaw, provider: params.provider });
+    const tools = sanitizeToolsForGoogle({
+      tools: toolsRaw,
+      provider: params.provider,
+    });
     logToolSchemasForGoogle({ tools, provider: params.provider });
 
     const machineName = await getMachineDisplayName();
@@ -352,7 +373,10 @@ export async function runEmbeddedAttempt(
       },
     });
     const isDefaultAgent = sessionAgentId === defaultAgentId;
-    const promptMode = isSubagentSessionKey(params.sessionKey) ? "minimal" : "full";
+    const promptMode =
+      isSubagentSessionKey(params.sessionKey) || isCronSessionKey(params.sessionKey)
+        ? "minimal"
+        : "full";
     const docsPath = await resolveOpenClawDocsPath({
       workspaceDir: effectiveWorkspace,
       argv1: process.argv[1],
@@ -397,6 +421,7 @@ export async function runEmbeddedAttempt(
       model: params.modelId,
       workspaceDir: effectiveWorkspace,
       bootstrapMaxChars: resolveBootstrapMaxChars(params.config),
+      bootstrapTotalMaxChars: resolveBootstrapTotalMaxChars(params.config),
       sandbox: (() => {
         const runtime = resolveSandboxRuntimeStatus({
           cfg: params.config,
@@ -427,10 +452,14 @@ export async function runEmbeddedAttempt(
 
     const sessionLock = await acquireSessionWriteLock({
       sessionFile: params.sessionFile,
+      maxHoldMs: resolveSessionLockMaxHoldFromTimeout({
+        timeoutMs: params.timeoutMs,
+      }),
     });
 
     let sessionManager: ReturnType<typeof guardSessionManager> | undefined;
     let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+    let removeToolResultContextGuard: (() => void) | undefined;
     try {
       await repairSessionFileIfNeeded({
         sessionFile: params.sessionFile,
@@ -498,7 +527,14 @@ export async function runEmbeddedAttempt(
       });
 
       // Add client tools (OpenResponses hosted tools) to customTools
-      let clientToolCallDetected: { name: string; params: Record<string, unknown> } | null = null;
+      let clientToolCallDetected: {
+        name: string;
+        params: Record<string, unknown>;
+      } | null = null;
+      const clientToolLoopDetection = resolveToolLoopDetectionConfig({
+        cfg: params.config,
+        agentId: sessionAgentId,
+      });
       const clientToolDefs = params.clientTools
         ? toClientToolDefinitions(
             params.clientTools,
@@ -509,6 +545,7 @@ export async function runEmbeddedAttempt(
               guardrails: toolHookOptions,
               agentId: sessionAgentId,
               sessionKey: params.sessionKey,
+              loopDetection: clientToolLoopDetection,
             },
           )
         : [];
@@ -532,6 +569,15 @@ export async function runEmbeddedAttempt(
         throw new Error("Embedded agent session missing");
       }
       const activeSession = session;
+      removeToolResultContextGuard = installToolResultContextGuard({
+        agent: activeSession.agent,
+        contextWindowTokens: Math.max(
+          1,
+          Math.floor(
+            params.model.contextWindow ?? params.model.maxTokens ?? DEFAULT_CONTEXT_TOKENS,
+          ),
+        ),
+      });
       const cacheTrace = createCacheTrace({
         cfg: params.config,
         env: process.env,
@@ -598,6 +644,7 @@ export async function runEmbeddedAttempt(
           modelApi: params.model.api,
           modelId: params.modelId,
           provider: params.provider,
+          config: params.config,
           sessionManager,
           sessionId: params.sessionId,
           policy: transcriptPolicy,
@@ -634,6 +681,7 @@ export async function runEmbeddedAttempt(
 
       let aborted = Boolean(params.abortSignal?.aborted);
       let timedOut = false;
+      let timedOutDuringCompaction = false;
       const getAbortReason = (signal: AbortSignal): unknown =>
         "reason" in signal ? (signal as { reason?: unknown }).reason : undefined;
       const makeTimeoutAbortReason = (): Error => {
@@ -694,6 +742,7 @@ export async function runEmbeddedAttempt(
         shouldEmitToolOutput: params.shouldEmitToolOutput,
         onToolResult: params.onToolResult,
         onReasoningStream: params.onReasoningStream,
+        onReasoningEnd: params.onReasoningEnd,
         onBlockReply: params.onBlockReply,
         onBlockReplyFlush: params.onBlockReplyFlush,
         blockReplyBreak: params.blockReplyBreak,
@@ -712,7 +761,9 @@ export async function runEmbeddedAttempt(
         unsubscribe,
         waitForCompactionRetry,
         getMessagingToolSentTexts,
+        getMessagingToolSentMediaUrls,
         getMessagingToolSentTargets,
+        getSuccessfulCronAdds,
         didSendViaMessagingTool,
         getLastToolError,
         getUsageTotals,
@@ -727,7 +778,7 @@ export async function runEmbeddedAttempt(
         isCompacting: () => subscription.isCompacting(),
         abort: abortRun,
       };
-      setActiveEmbeddedRun(params.sessionId, queueHandle);
+      setActiveEmbeddedRun(params.sessionId, queueHandle, params.sessionKey);
 
       let abortWarnTimer: NodeJS.Timeout | undefined;
       const isProbeSession = params.sessionId?.startsWith("probe-") ?? false;
@@ -737,6 +788,15 @@ export async function runEmbeddedAttempt(
             log.warn(
               `embedded run timeout: runId=${params.runId} sessionId=${params.sessionId} timeoutMs=${params.timeoutMs}`,
             );
+          }
+          if (
+            shouldFlagCompactionTimeout({
+              isTimeout: true,
+              isCompactionPendingOrRetrying: subscription.isCompacting(),
+              isCompactionInFlight: activeSession.isCompacting,
+            })
+          ) {
+            timedOutDuringCompaction = true;
           }
           abortRun(true);
           if (!abortWarnTimer) {
@@ -763,6 +823,15 @@ export async function runEmbeddedAttempt(
       const onAbort = () => {
         const reason = params.abortSignal ? getAbortReason(params.abortSignal) : undefined;
         const timeout = reason ? isTimeoutError(reason) : false;
+        if (
+          shouldFlagCompactionTimeout({
+            isTimeout: timeout,
+            isCompactionPendingOrRetrying: subscription.isCompacting(),
+            isCompactionInFlight: activeSession.isCompacting,
+          })
+        ) {
+          timedOutDuringCompaction = true;
+        }
         abortRun(timeout, reason);
       };
       if (params.abortSignal) {
@@ -785,34 +854,62 @@ export async function runEmbeddedAttempt(
             }).sessionAgentId;
 
       let promptError: unknown = null;
+      let promptErrorSource: "prompt" | "compaction" | null = null;
       try {
         const promptStartedAt = Date.now();
 
-        // Run before_agent_start hooks to allow plugins to inject context
+        // Run before_prompt_build hooks to allow plugins to inject prompt context.
+        // Legacy compatibility: before_agent_start is also checked for context fields.
         let effectivePrompt = params.prompt;
-        if (hookRunner?.hasHooks("before_agent_start")) {
-          try {
-            const hookResult = await hookRunner.runBeforeAgentStart(
-              {
-                prompt: params.prompt,
-                messages: activeSession.messages,
-              },
-              {
-                agentId: hookAgentId,
-                sessionKey: params.sessionKey,
-                sessionId: params.sessionId,
-                workspaceDir: params.workspaceDir,
-                messageProvider: params.messageProvider ?? undefined,
-              },
+        const hookCtx = {
+          agentId: hookAgentId,
+          sessionKey: params.sessionKey,
+          sessionId: params.sessionId,
+          workspaceDir: params.workspaceDir,
+          messageProvider: params.messageProvider ?? undefined,
+        };
+        const promptBuildResult = hookRunner?.hasHooks("before_prompt_build")
+          ? await hookRunner
+              .runBeforePromptBuild(
+                {
+                  prompt: params.prompt,
+                  messages: activeSession.messages,
+                },
+                hookCtx,
+              )
+              .catch((hookErr: unknown) => {
+                log.warn(`before_prompt_build hook failed: ${String(hookErr)}`);
+                return undefined;
+              })
+          : undefined;
+        const legacyResult = hookRunner?.hasHooks("before_agent_start")
+          ? await hookRunner
+              .runBeforeAgentStart(
+                {
+                  prompt: params.prompt,
+                  messages: activeSession.messages,
+                },
+                hookCtx,
+              )
+              .catch((hookErr: unknown) => {
+                log.warn(
+                  `before_agent_start hook (legacy prompt build path) failed: ${String(hookErr)}`,
+                );
+                return undefined;
+              })
+          : undefined;
+        const hookResult = {
+          systemPrompt: promptBuildResult?.systemPrompt ?? legacyResult?.systemPrompt,
+          prependContext: [promptBuildResult?.prependContext, legacyResult?.prependContext]
+            .filter((value): value is string => Boolean(value))
+            .join("\n\n"),
+        };
+        {
+          if (hookResult?.prependContext) {
+            effectivePrompt = `${hookResult.prependContext}\n\n${params.prompt}`;
+            log.debug(
+              `hooks: prepended context to prompt (${hookResult.prependContext.length} chars)`,
             );
-            if (hookResult?.prependContext) {
-              effectivePrompt = `${hookResult.prependContext}\n\n${params.prompt}`;
-              log.debug(
-                `hooks: prepended context to prompt (${hookResult.prependContext.length} chars)`,
-              );
-            }
-          } catch (hookErr) {
-            log.warn(`before_agent_start hook failed: ${String(hookErr)}`);
           }
         }
 
@@ -880,7 +977,13 @@ export async function runEmbeddedAttempt(
                   cacheRead: 0,
                   cacheWrite: 0,
                   totalTokens: 0,
-                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+                  cost: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    total: 0,
+                  },
                 },
                 stopReason: "stop",
                 timestamp: now,
@@ -954,11 +1057,39 @@ export async function runEmbeddedAttempt(
               });
             }
 
+            if (hookRunner?.hasHooks("llm_input")) {
+              hookRunner
+                .runLlmInput(
+                  {
+                    runId: params.runId,
+                    sessionId: params.sessionId,
+                    provider: params.provider,
+                    model: params.modelId,
+                    systemPrompt: systemPromptText,
+                    prompt: effectivePrompt,
+                    historyMessages: activeSession.messages,
+                    imagesCount: imageResult.images.length,
+                  },
+                  {
+                    agentId: hookAgentId,
+                    sessionKey: params.sessionKey,
+                    sessionId: params.sessionId,
+                    workspaceDir: params.workspaceDir,
+                    messageProvider: params.messageProvider ?? undefined,
+                  },
+                )
+                .catch((err) => {
+                  log.warn(`llm_input hook failed: ${String(err)}`);
+                });
+            }
+
             // Only pass images option if there are actually images to pass
             // This avoids potential issues with models that don't expect the images parameter
             if (imageResult.images.length > 0) {
               await abortable(
-                activeSession.prompt(effectivePrompt, { images: imageResult.images }),
+                activeSession.prompt(effectivePrompt, {
+                  images: imageResult.images,
+                }),
               );
             } else {
               await abortable(activeSession.prompt(effectivePrompt));
@@ -976,12 +1107,28 @@ export async function runEmbeddedAttempt(
           );
         }
 
+        // Capture snapshot before compaction wait so we have complete messages if timeout occurs
+        // Check compaction state before and after to avoid race condition where compaction starts during capture
+        // Use session state (not subscription) for snapshot decisions - need instantaneous compaction status
+        const wasCompactingBefore = activeSession.isCompacting;
+        const snapshot = activeSession.messages.slice();
+        const wasCompactingAfter = activeSession.isCompacting;
+        // Only trust snapshot if compaction wasn't running before or after capture
+        const preCompactionSnapshot = wasCompactingBefore || wasCompactingAfter ? null : snapshot;
+        const preCompactionSessionId = activeSession.sessionId;
+
         try {
-          await waitForCompactionRetry();
+          await abortable(waitForCompactionRetry());
         } catch (err) {
           if (isRunnerAbortError(err)) {
             if (!promptError) {
               promptError = err;
+              promptErrorSource = "compaction";
+            }
+            if (!isProbeSession) {
+              log.debug(
+                `compaction wait aborted: runId=${params.runId} sessionId=${params.sessionId}`,
+              );
             }
           } else {
             throw err;
@@ -993,22 +1140,62 @@ export async function runEmbeddedAttempt(
         // inserted between compaction and the next prompt — breaking the
         // prepareCompaction() guard that checks the last entry type, leading to
         // double-compaction. See: https://github.com/openclaw/openclaw/issues/9282
-        const shouldTrackCacheTtl =
-          params.config?.agents?.defaults?.contextPruning?.mode === "cache-ttl" &&
-          isCacheTtlEligibleProvider(params.provider, params.modelId);
-        if (shouldTrackCacheTtl) {
-          appendCacheTtlTimestamp(sessionManager, {
-            timestamp: Date.now(),
-            provider: params.provider,
-            modelId: params.modelId,
-          });
+        // Skip when timed out during compaction — session state may be inconsistent.
+        if (!timedOutDuringCompaction) {
+          const shouldTrackCacheTtl =
+            params.config?.agents?.defaults?.contextPruning?.mode === "cache-ttl" &&
+            isCacheTtlEligibleProvider(params.provider, params.modelId);
+          if (shouldTrackCacheTtl) {
+            appendCacheTtlTimestamp(sessionManager, {
+              timestamp: Date.now(),
+              provider: params.provider,
+              modelId: params.modelId,
+            });
+          }
         }
 
-        messagesSnapshot = activeSession.messages.slice();
-        sessionIdUsed = activeSession.sessionId;
+        // If timeout occurred during compaction, use pre-compaction snapshot when available
+        // (compaction restructures messages but does not add user/assistant turns).
+        const snapshotSelection = selectCompactionTimeoutSnapshot({
+          timedOutDuringCompaction,
+          preCompactionSnapshot,
+          preCompactionSessionId,
+          currentSnapshot: activeSession.messages.slice(),
+          currentSessionId: activeSession.sessionId,
+        });
+        if (timedOutDuringCompaction) {
+          if (!isProbeSession) {
+            log.warn(
+              `using ${snapshotSelection.source} snapshot: timed out during compaction runId=${params.runId} sessionId=${params.sessionId}`,
+            );
+          }
+        }
+        messagesSnapshot = snapshotSelection.messagesSnapshot;
+        sessionIdUsed = snapshotSelection.sessionIdUsed;
+
+        if (promptError && promptErrorSource === "prompt") {
+          try {
+            sessionManager.appendCustomEntry("openclaw:prompt-error", {
+              timestamp: Date.now(),
+              runId: params.runId,
+              sessionId: params.sessionId,
+              provider: params.provider,
+              model: params.modelId,
+              api: params.model.api,
+              error: describeUnknownError(promptError),
+            });
+          } catch (entryErr) {
+            log.warn(`failed to persist prompt error entry: ${String(entryErr)}`);
+          }
+        }
+
         cacheTrace?.recordStage("session:after", {
           messages: messagesSnapshot,
-          note: promptError ? "prompt error" : undefined,
+          note: timedOutDuringCompaction
+            ? "compaction timeout"
+            : promptError
+              ? "prompt error"
+              : undefined,
         });
         if (guardrailBlock?.stage !== "before_request") {
           anthropicPayloadLogger?.recordUsage(messagesSnapshot, promptError);
@@ -1078,7 +1265,13 @@ export async function runEmbeddedAttempt(
                         cacheRead: 0,
                         cacheWrite: 0,
                         totalTokens: 0,
-                        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+                        cost: {
+                          input: 0,
+                          output: 0,
+                          cacheRead: 0,
+                          cacheWrite: 0,
+                          total: 0,
+                        },
                       },
                       stopReason,
                       timestamp: now,
@@ -1097,6 +1290,7 @@ export async function runEmbeddedAttempt(
 
         // Run agent_end hooks to allow plugins to analyze the conversation
         // This is fire-and-forget, so we don't await
+        // Run even on compaction timeout so plugins can log/cleanup
         if (hookRunner?.hasHooks("agent_end")) {
           hookRunner
             .runAgentEnd(
@@ -1123,8 +1317,22 @@ export async function runEmbeddedAttempt(
         if (abortWarnTimer) {
           clearTimeout(abortWarnTimer);
         }
-        unsubscribe();
-        clearActiveEmbeddedRun(params.sessionId, queueHandle);
+        if (!isProbeSession && (aborted || timedOut) && !timedOutDuringCompaction) {
+          log.debug(
+            `run cleanup: runId=${params.runId} sessionId=${params.sessionId} aborted=${aborted} timedOut=${timedOut}`,
+          );
+        }
+        try {
+          unsubscribe();
+        } catch (err) {
+          // unsubscribe() should never throw; if it does, it indicates a serious bug.
+          // Log at error level to ensure visibility, but don't rethrow in finally block
+          // as it would mask any exception from the try block above.
+          log.error(
+            `CRITICAL: unsubscribe failed, possible resource leak: runId=${params.runId} ${String(err)}`,
+          );
+        }
+        clearActiveEmbeddedRun(params.sessionId, queueHandle, params.sessionKey);
         params.abortSignal?.removeEventListener?.("abort", onAbort);
       }
 
@@ -1144,9 +1352,35 @@ export async function runEmbeddedAttempt(
         assistantTexts.splice(0, assistantTexts.length, response);
       }
 
+      if (hookRunner?.hasHooks("llm_output")) {
+        hookRunner
+          .runLlmOutput(
+            {
+              runId: params.runId,
+              sessionId: params.sessionId,
+              provider: params.provider,
+              model: params.modelId,
+              assistantTexts,
+              lastAssistant,
+              usage: getUsageTotals(),
+            },
+            {
+              agentId: hookAgentId,
+              sessionKey: params.sessionKey,
+              sessionId: params.sessionId,
+              workspaceDir: params.workspaceDir,
+              messageProvider: params.messageProvider ?? undefined,
+            },
+          )
+          .catch((err) => {
+            log.warn(`llm_output hook failed: ${String(err)}`);
+          });
+      }
+
       return {
         aborted,
         timedOut,
+        timedOutDuringCompaction,
         promptError,
         sessionIdUsed,
         systemPromptReport,
@@ -1157,7 +1391,9 @@ export async function runEmbeddedAttempt(
         lastToolError: getLastToolError?.(),
         didSendViaMessagingTool: didSendViaMessagingTool(),
         messagingToolSentTexts: getMessagingToolSentTexts(),
+        messagingToolSentMediaUrls: getMessagingToolSentMediaUrls(),
         messagingToolSentTargets: getMessagingToolSentTargets(),
+        successfulCronAdds: getSuccessfulCronAdds(),
         cloudCodeAssistFormatError: Boolean(
           lastAssistant?.errorMessage && isCloudCodeAssistFormatError(lastAssistant.errorMessage),
         ),
@@ -1176,6 +1412,7 @@ export async function runEmbeddedAttempt(
       // flushPendingToolResults() fires while tools are still executing, inserting
       // synthetic "missing tool result" errors and causing silent agent failures.
       // See: https://github.com/openclaw/openclaw/issues/8643
+      removeToolResultContextGuard?.();
       await flushPendingToolResultsAfterIdle({
         agent: session?.agent,
         sessionManager,
