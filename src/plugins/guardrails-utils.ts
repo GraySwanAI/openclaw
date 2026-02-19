@@ -73,7 +73,13 @@ export function extractToolResultText(result: AgentToolResult<unknown>): string 
   if (contentText) {
     return contentText;
   }
-  if (result?.details !== undefined) {
+  // Only use details if it has actual content (non-empty object)
+  if (
+    result?.details !== undefined &&
+    typeof result.details === "object" &&
+    result.details !== null &&
+    Object.keys(result.details).length > 0
+  ) {
     try {
       return JSON.stringify(result.details);
     } catch {
@@ -268,7 +274,9 @@ export function collectText(
  * Create a temporary directory for guardrail sessions.
  */
 export async function createGuardrailTempDir(prefix: string): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), `openclaw-${prefix}-`));
+  const tmpDir = os.tmpdir();
+  const dirPrefix = `openclaw-${prefix}-`;
+  return fs.mkdtemp(path.join(tmpDir, dirPrefix));
 }
 
 /**
