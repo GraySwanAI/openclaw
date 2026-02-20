@@ -6,11 +6,11 @@ import type {
 } from "@mariozechner/pi-agent-core";
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import type { OpenClawConfig } from "../config/config.js";
-import type { PluginHookToolContext } from "../plugins/types.js";
-import type { ClientToolDefinition } from "./pi-embedded-runner/run/params.js";
 import { logDebug, logError } from "../logger.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
+import type { PluginHookToolContext } from "../plugins/types.js";
 import { isPlainObject } from "../utils.js";
+import type { ClientToolDefinition } from "./pi-embedded-runner/run/params.js";
 import {
   consumeAdjustedParamsForToolCall,
   markAfterToolCallHookHandled,
@@ -20,8 +20,7 @@ import {
 import { normalizeToolName } from "./tool-policy.js";
 import { jsonResult } from "./tools/common.js";
 
-// oxlint-disable-next-line typescript/no-explicit-any
-type AnyAgentTool = AgentTool<any, unknown>;
+type AnyAgentTool = AgentTool;
 
 export type ToolHookOptions = {
   context: ToolHookContext;
@@ -45,16 +44,16 @@ export type ToolHookContext = {
 type ToolExecuteArgsCurrent = [
   string,
   unknown,
+  AbortSignal | undefined,
   AgentToolUpdateCallback<unknown> | undefined,
   unknown,
-  AbortSignal | undefined,
 ];
 type ToolExecuteArgsLegacy = [
   string,
   unknown,
-  AbortSignal | undefined,
   AgentToolUpdateCallback<unknown> | undefined,
   unknown,
+  AbortSignal | undefined,
 ];
 type ToolExecuteArgs = ToolDefinition["execute"] extends (...args: infer P) => unknown
   ? P
@@ -73,8 +72,11 @@ function isAbortSignal(value: unknown): value is AbortSignal {
 
 function isLegacyToolExecuteArgs(args: ToolExecuteArgsAny): args is ToolExecuteArgsLegacy {
   const third = args[2];
-  const fourth = args[3];
-  return isAbortSignal(third) || typeof fourth === "function";
+  const fifth = args[4];
+  if (typeof third === "function") {
+    return true;
+  }
+  return isAbortSignal(fifth);
 }
 
 function describeToolExecutionError(err: unknown): {
@@ -95,7 +97,7 @@ function splitToolExecuteArgs(args: ToolExecuteArgsAny): {
   signal: AbortSignal | undefined;
 } {
   if (isLegacyToolExecuteArgs(args)) {
-    const [toolCallId, params, signal, onUpdate] = args;
+    const [toolCallId, params, onUpdate, _ctx, signal] = args;
     return {
       toolCallId,
       params,
@@ -103,7 +105,7 @@ function splitToolExecuteArgs(args: ToolExecuteArgsAny): {
       signal,
     };
   }
-  const [toolCallId, params, onUpdate, _ctx, signal] = args;
+  const [toolCallId, params, signal, onUpdate] = args;
   return {
     toolCallId,
     params,
@@ -333,8 +335,7 @@ export function toClientToolDefinitions(
       name: func.name,
       label: func.name,
       description: func.description ?? "",
-      // oxlint-disable-next-line typescript/no-explicit-any
-      parameters: func.parameters as any,
+      parameters: func.parameters as ToolDefinition["parameters"],
       execute: async (...args: ToolExecuteArgs): Promise<AgentToolResult<unknown>> => {
         const { toolCallId, params } = splitToolExecuteArgs(args);
         const hookRunner = getGlobalHookRunner();
