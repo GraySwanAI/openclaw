@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import "./test-mocks.js";
 import { downloadBlueBubblesAttachment, sendBlueBubblesAttachment } from "./attachments.js";
+
+vi.mock("./accounts.js", async () => {
+  const { createBlueBubblesAccountsMockModule } = await import("./test-harness.js");
+  return createBlueBubblesAccountsMockModule();
+});
+
+vi.mock("./probe.js", async () => {
+  const { createBlueBubblesProbeMockModule } = await import("./test-harness.js");
+  return createBlueBubblesProbeMockModule();
+});
 import { getCachedBlueBubblesPrivateApiStatus } from "./probe.js";
 import { installBlueBubblesFetchTestHooks } from "./test-harness.js";
 import type { BlueBubblesAttachment } from "./types.js";

@@ -51,10 +51,17 @@ const nodeMajor = Number.parseInt(process.versions.node.split(".")[0] ?? "", 10)
 // vmForks is a big win for transform/import heavy suites, but Node 24 had
 // regressions with Vitest's vm runtime in this repo. Keep it opt-out via
 // OPENCLAW_TEST_VM_FORKS=0, and let users force-enable with =1.
+// vmForks with a single worker (macOS CI uses maxWorkers=1) causes module cache
+// contamination between test files — VM contexts share the same worker process
+// and module state leaks across files. Use process forks on macOS CI for true
+// per-file isolation.
 const supportsVmForks = Number.isFinite(nodeMajor) ? nodeMajor !== 24 : true;
 const useVmForks =
   process.env.OPENCLAW_TEST_VM_FORKS === "1" ||
-  (process.env.OPENCLAW_TEST_VM_FORKS !== "0" && !isWindows && supportsVmForks);
+  (process.env.OPENCLAW_TEST_VM_FORKS !== "0" &&
+    !isWindows &&
+    supportsVmForks &&
+    !(isCI && isMacOS));
 const disableIsolation = process.env.OPENCLAW_TEST_NO_ISOLATE === "1";
 const runs = [
   ...(useVmForks
