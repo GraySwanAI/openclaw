@@ -420,8 +420,6 @@ export async function handleToolExecutionEnd(
       return;
     }
 
-    const startData = toolStartData.get(toolCallId);
-    toolStartData.delete(toolCallId);
     const durationMs = startData?.startTime != null ? Date.now() - startData.startTime : undefined;
     const toolArgs = startData?.args;
     const hookEvent: PluginHookAfterToolCallEvent = {
@@ -431,13 +429,12 @@ export async function handleToolExecutionEnd(
       result: sanitizedResult as AgentToolResult<unknown>,
       error: isToolError ? extractToolErrorMessage(sanitizedResult) : undefined,
       durationMs,
-      messages: ctx.params.session?.messages ?? [],
+      messages: [],
     };
     void hookRunnerAfter
       .runAfterToolCall(hookEvent, {
         toolName,
         agentId: undefined,
-        sessionKey: ctx.params.sessionKey,
       })
       .catch((err) => {
         ctx.log.warn(`after_tool_call hook failed: tool=${toolName} error=${String(err)}`);

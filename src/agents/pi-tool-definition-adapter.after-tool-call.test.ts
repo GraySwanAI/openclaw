@@ -10,6 +10,7 @@ const hookMocks = vi.hoisted(() => ({
   },
   isToolWrappedWithBeforeToolCallHook: vi.fn(() => false),
   consumeAdjustedParamsForToolCall: vi.fn((_: string) => undefined as unknown),
+  markAfterToolCallHookHandled: vi.fn((_: string) => {}),
   runBeforeToolCallHook: vi.fn(async ({ params }: { params: unknown }) => ({
     blocked: false,
     params,
@@ -23,6 +24,7 @@ vi.mock("../plugins/hook-runner-global.js", () => ({
 vi.mock("./pi-tools.before-tool-call.js", () => ({
   consumeAdjustedParamsForToolCall: hookMocks.consumeAdjustedParamsForToolCall,
   isToolWrappedWithBeforeToolCallHook: hookMocks.isToolWrappedWithBeforeToolCallHook,
+  markAfterToolCallHookHandled: hookMocks.markAfterToolCallHookHandled,
   runBeforeToolCallHook: hookMocks.runBeforeToolCallHook,
 }));
 
@@ -53,14 +55,18 @@ async function executeReadTool(callId: string) {
   return await execute(callId, { path: "/tmp/file" }, undefined, undefined, extensionContext);
 }
 
-function expectReadAfterToolCallPayload(result: Awaited<ReturnType<typeof executeReadTool>>) {
+function expectReadAfterToolCallPayload(
+  callId: string,
+  result: Awaited<ReturnType<typeof executeReadTool>>,
+) {
   expect(hookMocks.runner.runAfterToolCall).toHaveBeenCalledWith(
-    {
+    expect.objectContaining({
       toolName: "read",
+      toolCallId: callId,
       params: { mode: "safe" },
       result,
-    },
-    { toolName: "read" },
+    }),
+    expect.objectContaining({ toolName: "read" }),
   );
 }
 
@@ -73,6 +79,7 @@ describe("pi tool definition adapter after_tool_call", () => {
     hookMocks.isToolWrappedWithBeforeToolCallHook.mockReturnValue(false);
     hookMocks.consumeAdjustedParamsForToolCall.mockClear();
     hookMocks.consumeAdjustedParamsForToolCall.mockReturnValue(undefined);
+    hookMocks.markAfterToolCallHookHandled.mockClear();
     hookMocks.runBeforeToolCallHook.mockClear();
     hookMocks.runBeforeToolCallHook.mockImplementation(async ({ params }) => ({
       blocked: false,
@@ -90,7 +97,7 @@ describe("pi tool definition adapter after_tool_call", () => {
 
     expect(result.details).toMatchObject({ ok: true });
     expect(hookMocks.runner.runAfterToolCall).toHaveBeenCalledTimes(1);
-    expectReadAfterToolCallPayload(result);
+    expectReadAfterToolCallPayload("call-ok", result);
   });
 
   it("uses wrapped-tool adjusted params for after_tool_call payload", async () => {
@@ -101,7 +108,7 @@ describe("pi tool definition adapter after_tool_call", () => {
 
     expect(result.details).toMatchObject({ ok: true });
     expect(hookMocks.runBeforeToolCallHook).not.toHaveBeenCalled();
-    expectReadAfterToolCallPayload(result);
+    expectReadAfterToolCallPayload("call-ok-wrapped", result);
   });
 
   it("dispatches after_tool_call once on adapter error with normalized tool name", async () => {
@@ -131,12 +138,13 @@ describe("pi tool definition adapter after_tool_call", () => {
     });
     expect(hookMocks.runner.runAfterToolCall).toHaveBeenCalledTimes(1);
     expect(hookMocks.runner.runAfterToolCall).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         toolName: "exec",
+        toolCallId: "call-err",
         params: { cmd: "ls" },
         error: "boom",
-      },
-      { toolName: "exec" },
+      }),
+      expect.objectContaining({ toolName: "exec" }),
     );
   });
 

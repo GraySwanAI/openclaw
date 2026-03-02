@@ -5,10 +5,11 @@
  * and stage configuration helpers used across guardrail implementations.
  */
 
-import type { AgentMessage, AgentToolResult } from "@mariozechner/pi-agent-core";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { AgentMessage, AgentToolResult } from "@mariozechner/pi-agent-core";
 
 // ============================================================================
 // Types
@@ -268,7 +269,8 @@ export function collectText(
  * Create a temporary directory for guardrail sessions.
  */
 export async function createGuardrailTempDir(prefix: string): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), `openclaw-${prefix}-`));
+  const safePrefix = prefix.replace(/[^a-z0-9_-]/gi, "-");
+  return fs.mkdtemp(path.join(os.tmpdir(), "openclaw-" + safePrefix + "-"));
 }
 
 /**
@@ -284,7 +286,7 @@ export async function cleanupTempDir(tmpDir: string | null): Promise<void> {
  * Generate a unique session ID for guardrail calls.
  */
 export function generateSessionId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}-${randomUUID()}`;
 }
 
 const GUARDRAIL_RUN_ID_PREFIX = "guardrail:";

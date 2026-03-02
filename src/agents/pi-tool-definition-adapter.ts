@@ -341,6 +341,7 @@ export function toToolDefinitions(
                   toolCallId: String(safeToolCallId),
                   params: paramsRecord,
                   result: errorResult,
+                  error: described.message,
                   messages: hookOptions?.getMessages() ?? [],
                   systemPrompt: hookOptions?.systemPrompt,
                 },

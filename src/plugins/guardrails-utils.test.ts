@@ -255,7 +255,7 @@ describe("resolveStageConfig", () => {
 describe("generateSessionId", () => {
   it("generates session ID with prefix", () => {
     const id = generateSessionId("test");
-    expect(id).toMatch(/^test-\d+-[a-z0-9]+$/);
+    expect(id).toMatch(/^test-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 
   it("generates unique IDs", () => {
