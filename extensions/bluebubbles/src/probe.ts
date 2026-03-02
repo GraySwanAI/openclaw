@@ -1,9 +1,8 @@
+import type { BaseProbeResult } from "openclaw/plugin-sdk";
 import { buildBlueBubblesApiUrl, blueBubblesFetchWithTimeout } from "./types.js";
 
-export type BlueBubblesProbe = {
-  ok: boolean;
+export type BlueBubblesProbe = BaseProbeResult & {
   status?: number | null;
-  error?: string | null;
 };
 
 export type BlueBubblesServerInfo = {
@@ -95,6 +94,14 @@ export function getCachedBlueBubblesPrivateApiStatus(accountId?: string): boolea
     return null;
   }
   return info.private_api;
+}
+
+export function isBlueBubblesPrivateApiStatusEnabled(status: boolean | null): boolean {
+  return status === true;
+}
+
+export function isBlueBubblesPrivateApiEnabled(accountId?: string): boolean {
+  return isBlueBubblesPrivateApiStatusEnabled(getCachedBlueBubblesPrivateApiStatus(accountId));
 }
 
 /**

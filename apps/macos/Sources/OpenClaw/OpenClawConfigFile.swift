@@ -1,5 +1,5 @@
-import OpenClawProtocol
 import Foundation
+import OpenClawProtocol
 
 enum OpenClawConfigFile {
     private static let logger = Logger(subsystem: "ai.openclaw", category: "config")
@@ -220,6 +220,19 @@ enum OpenClawConfigFile {
             let scheme = URL(string: existingUrl)?.scheme ?? "ws"
             remote["url"] = "\(scheme)://\(trimmedHost):\(port)"
             gateway["remote"] = remote
+        }
+    }
+
+    static func clearRemoteGatewayUrl() {
+        self.updateGatewayDict { gateway in
+            guard var remote = gateway["remote"] as? [String: Any] else { return }
+            guard remote["url"] != nil else { return }
+            remote.removeValue(forKey: "url")
+            if remote.isEmpty {
+                gateway.removeValue(forKey: "remote")
+            } else {
+                gateway["remote"] = remote
+            }
         }
     }
 
