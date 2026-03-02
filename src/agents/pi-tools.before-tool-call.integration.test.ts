@@ -1,3 +1,4 @@
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDiagnosticSessionStateForTest } from "../logging/diagnostic-session-state.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
@@ -133,12 +134,63 @@ describe("before_tool_call hook integration", () => {
         toolCallId: "call-5",
         params: {},
         messages: [],
+        systemPrompt: undefined,
       },
       {
         toolName: "read",
         agentId: "main",
         sessionKey: "main",
       },
+    );
+  });
+
+  it("includes history when explicitly enabled by caller", async () => {
+    hookRunner.hasHooks.mockReturnValue(true);
+    hookRunner.runBeforeToolCall.mockResolvedValue(undefined);
+    const execute = vi.fn().mockResolvedValue({ content: [], details: { ok: true } });
+    const history: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "hi" }], timestamp: 1 } as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "hello" }],
+        api: "openai-completions",
+        provider: "openrouter",
+        model: "openai/gpt-5.2",
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: "stop",
+        timestamp: 2,
+      } as AgentMessage,
+    ];
+    // oxlint-disable-next-line typescript/no-explicit-any
+    const tool = wrapToolWithBeforeToolCallHook({ name: "read", execute } as any, {
+      agentId: "main",
+      sessionKey: "main",
+      beforeToolCallHookIncludeHistory: true,
+      getMessages: () => history,
+    });
+    const extensionContext = {} as Parameters<typeof tool.execute>[3];
+
+    await tool.execute("call-history", { path: "/tmp/file" }, undefined, extensionContext);
+
+    expect(hookRunner.runBeforeToolCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: "read",
+        toolCallId: "call-history",
+        messages: history,
+        systemPrompt: undefined,
+      }),
+      expect.objectContaining({
+        toolName: "read",
+        agentId: "main",
+        sessionKey: "main",
+      }),
     );
   });
 });

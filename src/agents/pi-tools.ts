@@ -1,3 +1,4 @@
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { codingTools, createReadTool, readTool } from "@mariozechner/pi-coding-agent";
 import type { OpenClawConfig } from "../config/config.js";
 import type { ToolLoopDetectionConfig } from "../config/types.tools.js";
@@ -236,6 +237,19 @@ export function createOpenClawCodingTools(options?: {
   disableMessageTool?: boolean;
   /** Whether the sender is an owner (required for owner-only tools). */
   senderIsOwner?: boolean;
+  /**
+   * If true, include full transcript history in before_tool_call hook payloads.
+   * Defaults to false to preserve upstream behavior.
+   */
+  beforeToolCallHookIncludeHistory?: boolean;
+  /**
+   * Message provider for before_tool_call hook payloads when history is enabled.
+   */
+  getBeforeToolCallHookMessages?: () => AgentMessage[];
+  /**
+   * System prompt provider for before_tool_call hook payloads.
+   */
+  getBeforeToolCallHookSystemPrompt?: () => string | undefined;
 }): AnyAgentTool[] {
   const execToolName = "exec";
   const sandbox = options?.sandbox?.enabled ? options.sandbox : undefined;
@@ -531,6 +545,9 @@ export function createOpenClawCodingTools(options?: {
       agentId,
       sessionKey: options?.sessionKey,
       loopDetection: resolveToolLoopDetectionConfig({ cfg: options?.config, agentId }),
+      beforeToolCallHookIncludeHistory: options?.beforeToolCallHookIncludeHistory,
+      getMessages: options?.getBeforeToolCallHookMessages,
+      getSystemPrompt: options?.getBeforeToolCallHookSystemPrompt,
     }),
   );
   const withAbort = options?.abortSignal

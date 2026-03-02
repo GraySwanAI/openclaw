@@ -5,7 +5,14 @@
  * Inspects and optionally blocks requests, tool calls, tool results, and responses.
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import { convertMessages } from "@mariozechner/pi-ai/dist/providers/openai-completions.js";
+import type {
+  Context as OpenAIContext,
+  Message as OpenAIMessage,
+  Model as OpenAIModel,
+  OpenAICompletionsCompat,
+  Usage,
+} from "@mariozechner/pi-ai/dist/types.js";
 import {
   type BaseStageConfig,
   type GuardrailBaseConfig,
@@ -14,7 +21,6 @@ import {
   type GuardrailStage,
   type OpenClawPluginApi,
   createGuardrailPlugin,
-  extractTextFromContent,
   resolveStageConfig,
 } from "openclaw/plugin-sdk";
 
@@ -54,11 +60,6 @@ type GrayswanGuardrailConfig = GuardrailBaseConfig & {
   };
 };
 
-type GrayswanMonitorMessage = {
-  role: "user" | "assistant" | "tool" | "system";
-  content: string;
-};
-
 type GrayswanMonitorResponse = {
   violation?: number;
   violated_rules?: unknown[];
@@ -66,6 +67,8 @@ type GrayswanMonitorResponse = {
   mutation?: boolean;
   ipi?: boolean;
 };
+
+type OpenAICompatMessage = Record<string, unknown>;
 
 type GrayswanEvaluationDetails = {
   violationScore: number;
@@ -82,6 +85,35 @@ const GRAYSWAN_DEFAULT_BASE = "https://api.grayswan.ai";
 const GRAYSWAN_MONITOR_PATH = "/cygnal/monitor";
 const GRAYSWAN_DEFAULT_THRESHOLD = 0.5;
 const GRAYSWAN_DEFAULT_TIMEOUT_MS = 30_000;
+
+const CYGNAL_OPENAI_MODEL: OpenAIModel<"openai-completions"> = {
+  id: "gpt-4.1-mini",
+  name: "gpt-4.1-mini",
+  api: "openai-completions",
+  provider: "openai",
+  baseUrl: "https://api.openai.com/v1",
+  reasoning: false,
+  input: ["text"],
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 128_000,
+  maxTokens: 4_096,
+};
+
+const CYGNAL_OPENAI_COMPAT: Required<OpenAICompletionsCompat> = {
+  supportsStore: true,
+  supportsDeveloperRole: true,
+  supportsReasoningEffort: true,
+  supportsUsageInStreaming: true,
+  maxTokensField: "max_completion_tokens",
+  requiresToolResultName: false,
+  requiresAssistantAfterToolResult: false,
+  requiresThinkingAsText: false,
+  requiresMistralToolIds: false,
+  thinkingFormat: "openai",
+  openRouterRouting: {},
+  vercelGatewayRouting: {},
+  supportsStrictMode: true,
+};
 
 // ============================================================================
 // Helper Functions
@@ -135,34 +167,143 @@ function resolveGrayswanApiBase(cfg: GrayswanGuardrailConfig): string {
   return base.replace(/\/+$/, "");
 }
 
-function toGrayswanRole(role: unknown): GrayswanMonitorMessage["role"] | null {
-  if (role === "user" || role === "assistant" || role === "system") {
-    return role;
-  }
-  if (role === "toolResult" || role === "tool") {
-    return "tool";
-  }
-  return null;
+function toEmptyUsage(): Usage {
+  return {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  };
 }
 
-function toGrayswanMessages(messages: AgentMessage[]): GrayswanMonitorMessage[] {
-  const converted: GrayswanMonitorMessage[] = [];
-  for (const message of messages) {
-    const role = toGrayswanRole((message as { role?: unknown }).role);
-    if (!role) {
-      continue;
-    }
-    const content = extractTextFromContent((message as { content?: unknown }).content).trim();
-    if (!content) {
-      continue;
-    }
-    converted.push({ role, content });
+function toOpenAIParamsObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function toToolResultContent(value: unknown, fallbackText: string) {
+  const content = (value as { content?: unknown } | null | undefined)?.content;
+  if (!Array.isArray(content)) {
+    return [{ type: "text" as const, text: fallbackText }];
   }
-  return converted;
+  const blocks = content
+    .map((block) => {
+      if (!block || typeof block !== "object") {
+        return null;
+      }
+      const record = block as Record<string, unknown>;
+      if (record.type === "text" && typeof record.text === "string") {
+        return { type: "text" as const, text: record.text };
+      }
+      if (
+        record.type === "image" &&
+        typeof record.data === "string" &&
+        typeof record.mimeType === "string"
+      ) {
+        return { type: "image" as const, data: record.data, mimeType: record.mimeType };
+      }
+      return null;
+    })
+    .filter(
+      (
+        block,
+      ): block is
+        | { type: "text"; text: string }
+        | { type: "image"; data: string; mimeType: string } => block !== null,
+    );
+  return blocks.length > 0 ? blocks : [{ type: "text" as const, text: fallbackText }];
+}
+
+function toCurrentStageMessage(ctx: GuardrailEvaluationContext): OpenAIMessage | null {
+  switch (ctx.stage) {
+    case "before_request":
+      return {
+        role: "user",
+        content: ctx.content,
+        timestamp: Date.now(),
+      };
+    case "before_tool_call": {
+      const toolName =
+        typeof ctx.metadata.toolName === "string" && ctx.metadata.toolName.length > 0
+          ? ctx.metadata.toolName
+          : "unknown_tool";
+      const toolCallId =
+        typeof ctx.metadata.toolCallId === "string" && ctx.metadata.toolCallId.length > 0
+          ? ctx.metadata.toolCallId
+          : `guardrail-call-${Date.now()}`;
+      return {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: toolCallId,
+            name: toolName,
+            arguments: toOpenAIParamsObject(ctx.metadata.toolParams),
+          },
+        ],
+        api: "openai-completions",
+        provider: "openai",
+        model: CYGNAL_OPENAI_MODEL.id,
+        usage: toEmptyUsage(),
+        stopReason: "toolUse",
+        timestamp: Date.now(),
+      };
+    }
+    case "after_tool_call": {
+      const toolName =
+        typeof ctx.metadata.toolName === "string" && ctx.metadata.toolName.length > 0
+          ? ctx.metadata.toolName
+          : "tool";
+      const toolCallId =
+        typeof ctx.metadata.toolCallId === "string" && ctx.metadata.toolCallId.length > 0
+          ? ctx.metadata.toolCallId
+          : `guardrail-call-${Date.now()}`;
+      return {
+        role: "toolResult",
+        toolCallId,
+        toolName,
+        content: toToolResultContent(ctx.metadata.toolResult, ctx.content),
+        isError: false,
+        timestamp: Date.now(),
+      };
+    }
+    case "after_response":
+      if (ctx.history.length > 0) {
+        return null;
+      }
+      return {
+        role: "assistant",
+        content: [{ type: "text", text: ctx.content }],
+        api: "openai-completions",
+        provider: "openai",
+        model: CYGNAL_OPENAI_MODEL.id,
+        usage: toEmptyUsage(),
+        stopReason: "stop",
+        timestamp: Date.now(),
+      };
+  }
+}
+
+function toGrayswanMessages(ctx: GuardrailEvaluationContext): OpenAICompatMessage[] {
+  const history = ctx.history as unknown as OpenAIMessage[];
+  const current = toCurrentStageMessage(ctx);
+  const messages = current ? [...history, current] : history;
+  if (messages.length === 0) {
+    return [];
+  }
+  const openAIContext: OpenAIContext = { messages };
+  return convertMessages(
+    CYGNAL_OPENAI_MODEL,
+    openAIContext,
+    CYGNAL_OPENAI_COMPAT,
+  ) as unknown as OpenAICompatMessage[];
 }
 
 function buildMonitorPayload(
-  messages: GrayswanMonitorMessage[],
+  messages: OpenAICompatMessage[],
   cfg: GrayswanGuardrailConfig,
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = { messages };
@@ -180,7 +321,7 @@ function buildMonitorPayload(
 
 async function callGrayswanMonitor(params: {
   cfg: GrayswanGuardrailConfig;
-  messages: GrayswanMonitorMessage[];
+  messages: OpenAICompatMessage[];
   logger: OpenClawPluginApi["logger"];
 }): Promise<GrayswanMonitorResponse | null> {
   const apiKey = resolveGrayswanApiKey(params.cfg);
@@ -260,18 +401,6 @@ function formatViolatedRules(violatedRules: unknown[]): string {
   return formatted.join(", ");
 }
 
-function getGrayswanRole(stage: GuardrailStage): GrayswanMonitorMessage["role"] {
-  switch (stage) {
-    case "before_request":
-      return "user";
-    case "before_tool_call":
-    case "after_response":
-      return "assistant";
-    case "after_tool_call":
-      return "tool";
-  }
-}
-
 // ============================================================================
 // Plugin Definition (using createGuardrailPlugin)
 // ============================================================================
@@ -287,9 +416,7 @@ const grayswanPlugin = createGuardrailPlugin<GrayswanGuardrailConfig>({
     api: OpenClawPluginApi,
   ): Promise<GuardrailEvaluation | null> {
     // Build messages for Gray Swan API
-    const historyMessages = toGrayswanMessages(ctx.history);
-    const role = getGrayswanRole(ctx.stage);
-    const messages: GrayswanMonitorMessage[] = [...historyMessages, { role, content: ctx.content }];
+    const messages = toGrayswanMessages(ctx);
 
     if (messages.length === 0) {
       return null;

@@ -541,6 +541,7 @@ export async function runEmbeddedAttempt(
       : undefined;
 
     const agentDir = params.agentDir ?? resolveOpenClawAgentDir();
+    let sessionManager: ReturnType<typeof guardSessionManager> | undefined;
 
     const { defaultAgentId, sessionAgentId } = resolveSessionAgentIds({
       sessionKey: params.sessionKey,
@@ -593,6 +594,8 @@ export async function runEmbeddedAttempt(
           requireExplicitMessageTarget:
             params.requireExplicitMessageTarget ?? isSubagentSessionKey(params.sessionKey),
           disableMessageTool: params.disableMessageTool,
+          beforeToolCallHookIncludeHistory: true,
+          getBeforeToolCallHookMessages: () => sessionManager?.buildSessionContext().messages ?? [],
         });
     const tools = sanitizeToolsForGoogle({ tools: toolsRaw, provider: params.provider });
     const allowedToolNames = collectAllowedToolNames({
@@ -774,7 +777,6 @@ export async function runEmbeddedAttempt(
       }),
     });
 
-    let sessionManager: ReturnType<typeof guardSessionManager> | undefined;
     let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
     let removeToolResultContextGuard: (() => void) | undefined;
     try {

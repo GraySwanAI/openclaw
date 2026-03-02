@@ -1,3 +1,4 @@
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { ToolLoopDetectionConfig } from "../config/types.tools.js";
 import type { SessionState } from "../logging/diagnostic-session-state.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
@@ -10,6 +11,9 @@ export type HookContext = {
   agentId?: string;
   sessionKey?: string;
   loopDetection?: ToolLoopDetectionConfig;
+  beforeToolCallHookIncludeHistory?: boolean;
+  getMessages?: () => AgentMessage[];
+  getSystemPrompt?: () => string | undefined;
 };
 
 type HookOutcome = { blocked: true; reason: string } | { blocked: false; params: unknown };
@@ -141,12 +145,16 @@ export async function runBeforeToolCallHook(args: {
   try {
     const normalizedParams = isPlainObject(params) ? params : {};
     const toolCallId = args.toolCallId ?? `unknown-${Date.now()}`;
+    const includeHistory = args.ctx?.beforeToolCallHookIncludeHistory === true;
+    const messages = includeHistory ? (args.ctx?.getMessages?.() ?? []) : [];
+    const systemPrompt = args.ctx?.getSystemPrompt?.();
     const hookResult = await hookRunner.runBeforeToolCall(
       {
         toolName,
         toolCallId: String(toolCallId),
         params: normalizedParams,
-        messages: [],
+        messages,
+        systemPrompt,
       },
       {
         toolName,
