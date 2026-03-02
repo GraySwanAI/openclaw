@@ -11,6 +11,8 @@ import type {
   Message as OpenAIMessage,
   Model as OpenAIModel,
   OpenAICompletionsCompat,
+  TextContent,
+  ToolCall,
   Usage,
 } from "@mariozechner/pi-ai/dist/types.js";
 import {
@@ -287,19 +289,70 @@ function toCurrentStageMessage(ctx: GuardrailEvaluationContext): OpenAIMessage |
   }
 }
 
+function toCygnalContentText(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (content === null || content === undefined) {
+    return "";
+  }
+  if (!Array.isArray(content)) {
+    return String(content);
+  }
+  const parts: string[] = [];
+  for (const part of content) {
+    if (typeof part === "string") {
+      parts.push(part);
+      continue;
+    }
+    if (!part || typeof part !== "object") {
+      continue;
+    }
+    const record = part as Record<string, unknown>;
+    if (record.type === "text" && typeof record.text === "string") {
+      parts.push(record.text);
+      continue;
+    }
+    if (record.type === "image_url") {
+      parts.push("[image]");
+    }
+  }
+  return parts.join("\n");
+}
+
+function normalizeCygnalMessages(messages: OpenAICompatMessage[]): OpenAICompatMessage[] {
+  return messages.map((message) => {
+    const content = toCygnalContentText(message.content);
+    return { ...message, content };
+  });
+}
+
+function stripAssistantThinking(messages: OpenAIMessage[]): OpenAIMessage[] {
+  return messages.map((message) => {
+    if (message.role !== "assistant") {
+      return message;
+    }
+    const content = message.content.filter(
+      (block): block is TextContent | ToolCall => block.type !== "thinking",
+    );
+    return { ...message, content };
+  });
+}
+
 function toGrayswanMessages(ctx: GuardrailEvaluationContext): OpenAICompatMessage[] {
-  const history = ctx.history as unknown as OpenAIMessage[];
+  const history = stripAssistantThinking(ctx.history as unknown as OpenAIMessage[]);
   const current = toCurrentStageMessage(ctx);
   const messages = current ? [...history, current] : history;
   if (messages.length === 0) {
     return [];
   }
   const openAIContext: OpenAIContext = { messages };
-  return convertMessages(
+  const converted = convertMessages(
     CYGNAL_OPENAI_MODEL,
     openAIContext,
     CYGNAL_OPENAI_COMPAT,
   ) as unknown as OpenAICompatMessage[];
+  return normalizeCygnalMessages(converted);
 }
 
 function buildMonitorPayload(
@@ -350,7 +403,12 @@ async function callGrayswanMonitor(params: {
       signal: controller.signal,
     });
     if (!response.ok) {
-      throw new Error(`Gray Swan monitor returned ${response.status}`);
+      const details = await response.text().catch(() => "");
+      throw new Error(
+        details
+          ? `Gray Swan monitor returned ${response.status}: ${details}`
+          : `Gray Swan monitor returned ${response.status}`,
+      );
     }
     return (await response.json()) as GrayswanMonitorResponse;
   } finally {
