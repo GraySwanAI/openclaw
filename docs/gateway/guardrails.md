@@ -113,7 +113,7 @@ export default {
     api.on(
       "after_response",
       async (event, ctx) => {
-        // event: { assistantTexts, messages, lastAssistant? }
+        // event: { assistantTexts, messages, lastAssistant?, systemPrompt? }
         // Return to block or modify:
         // { block: true, blockResponse: "..." }
         // { assistantTexts: ["modified"] }
@@ -138,6 +138,7 @@ Each stage receives a different view of the conversation:
 - `before_tool_call`: history + a synthetic **assistant** message that summarizes the tool call
 - `after_tool_call`: history + a synthetic **tool** message that contains the tool result text
 - `after_response`: history + the final **assistant** response text
+- `systemPrompt?`: available on all guardrail stages for policy-aware evaluations
 
 ## Built-in guardrail plugins
 

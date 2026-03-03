@@ -1600,6 +1600,7 @@ export async function runEmbeddedAttempt(
               assistantTexts,
               messages: messagesSnapshot,
               lastAssistant,
+              systemPrompt: appendPrompt,
             },
             {
               agentId: sessionAgentId,

@@ -1,6 +1,7 @@
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { AgentMessage, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { describe, expect, it } from "vitest";
 import {
+  type BaseStageConfig,
   appendWarningToToolResult,
   buildToolCallSummary,
   createGuardrailRunId,
@@ -15,6 +16,17 @@ import {
   resolveStageConfig,
   safeJsonStringify,
 } from "./guardrails-utils.js";
+
+function asAgentMessage(role: string, content: string): AgentMessage {
+  return { role, content, timestamp: Date.now() } as unknown as AgentMessage;
+}
+
+function makeToolResult(
+  content: AgentToolResult<unknown>["content"],
+  details: Record<string, unknown> = {},
+): AgentToolResult<unknown> {
+  return { content, details };
+}
 
 describe("extractTextFromContent", () => {
   it("extracts text from string content", () => {
@@ -57,17 +69,17 @@ describe("extractTextFromContent", () => {
 
 describe("extractToolResultText", () => {
   it("extracts text from content field", () => {
-    const result = { content: [{ type: "text", text: "tool output" }] };
+    const result = makeToolResult([{ type: "text", text: "tool output" }]);
     expect(extractToolResultText(result)).toBe("tool output");
   });
 
   it("falls back to details field as JSON", () => {
-    const result = { content: [], details: { key: "value" } };
+    const result = makeToolResult([], { key: "value" });
     expect(extractToolResultText(result)).toBe('{"key":"value"}');
   });
 
   it("falls back to stringifying entire result", () => {
-    const result = { content: [], someField: "data" };
+    const result = { content: [], someField: "data" } as unknown as AgentToolResult<unknown>;
     expect(extractToolResultText(result)).toBe('{"content":[],"someField":"data"}');
   });
 
@@ -79,10 +91,10 @@ describe("extractToolResultText", () => {
 
 describe("extractMessagesContent", () => {
   it("extracts user and assistant messages", () => {
-    const messages = [
-      { role: "user", content: "Hello" },
-      { role: "assistant", content: "Hi there" },
-      { role: "user", content: "How are you?" },
+    const messages: AgentMessage[] = [
+      asAgentMessage("user", "Hello"),
+      asAgentMessage("assistant", "Hi there"),
+      asAgentMessage("user", "How are you?"),
     ];
     expect(extractMessagesContent(messages)).toBe(
       "User: Hello\nAgent: Hi there\nUser: How are you?",
@@ -90,19 +102,19 @@ describe("extractMessagesContent", () => {
   });
 
   it("skips non-user/assistant roles", () => {
-    const messages = [
-      { role: "system", content: "System prompt" },
-      { role: "user", content: "Hello" },
-      { role: "tool", content: "Tool result" },
+    const messages: AgentMessage[] = [
+      asAgentMessage("system", "System prompt"),
+      asAgentMessage("user", "Hello"),
+      asAgentMessage("toolResult", "Tool result"),
     ];
     expect(extractMessagesContent(messages)).toBe("User: Hello");
   });
 
   it("skips messages with empty content", () => {
-    const messages = [
-      { role: "user", content: "Hello" },
-      { role: "assistant", content: "" },
-      { role: "user", content: "Another message" },
+    const messages: AgentMessage[] = [
+      asAgentMessage("user", "Hello"),
+      asAgentMessage("assistant", ""),
+      asAgentMessage("user", "Another message"),
     ];
     expect(extractMessagesContent(messages)).toBe("User: Hello\nUser: Another message");
   });
@@ -114,7 +126,7 @@ describe("extractMessagesContent", () => {
 
 describe("appendWarningToToolResult", () => {
   it("appends warning to existing content array", () => {
-    const result = { content: [{ type: "text", text: "original" }] };
+    const result = makeToolResult([{ type: "text", text: "original" }]);
     const modified = appendWarningToToolResult(result, "warning message");
     expect(modified.content).toEqual([
       { type: "text", text: "original" },
@@ -123,13 +135,13 @@ describe("appendWarningToToolResult", () => {
   });
 
   it("creates content array if not present", () => {
-    const result = { content: undefined as unknown };
+    const result = { content: undefined } as unknown as AgentToolResult<unknown>;
     const modified = appendWarningToToolResult(result, "warning");
     expect(modified.content).toEqual([{ type: "text", text: "warning" }]);
   });
 
   it("does not mutate original result", () => {
-    const original = { content: [{ type: "text", text: "original" }] };
+    const original = makeToolResult([{ type: "text", text: "original" }]);
     appendWarningToToolResult(original, "warning");
     expect(original.content).toHaveLength(1);
   });
@@ -137,13 +149,13 @@ describe("appendWarningToToolResult", () => {
 
 describe("replaceToolResultWithWarning", () => {
   it("replaces content with warning", () => {
-    const result = { content: [{ type: "text", text: "original" }] };
+    const result = makeToolResult([{ type: "text", text: "original" }]);
     const modified = replaceToolResultWithWarning(result, "warning message");
     expect(modified.content).toEqual([{ type: "text", text: "warning message" }]);
   });
 
   it("includes guardrailWarning in details", () => {
-    const result = { content: [], details: { existing: "data" } };
+    const result = makeToolResult([], { existing: "data" });
     const modified = replaceToolResultWithWarning(result, "warning");
     const details = modified.details as { guardrailWarning?: string; existing?: string };
     expect(details.guardrailWarning).toBe("warning");
@@ -151,7 +163,7 @@ describe("replaceToolResultWithWarning", () => {
   });
 
   it("creates details with guardrailWarning if none exists", () => {
-    const result = { content: [] };
+    const result = { content: [] } as unknown as AgentToolResult<unknown>;
     const modified = replaceToolResultWithWarning(result, "warning");
     const details = modified.details as { guardrailWarning?: string };
     expect(details.guardrailWarning).toBe("warning");
@@ -226,7 +238,12 @@ describe("resolveBlockMode", () => {
 });
 
 describe("resolveStageConfig", () => {
-  const stages = {
+  const stages: {
+    beforeRequest?: BaseStageConfig;
+    beforeToolCall?: BaseStageConfig;
+    afterToolCall?: BaseStageConfig;
+    afterResponse?: BaseStageConfig;
+  } = {
     beforeRequest: { enabled: true, mode: "block" as const },
     beforeToolCall: { enabled: false },
     afterToolCall: { mode: "monitor" as const },

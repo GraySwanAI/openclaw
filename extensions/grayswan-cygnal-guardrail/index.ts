@@ -346,7 +346,8 @@ function toGrayswanMessages(ctx: GuardrailEvaluationContext): OpenAICompatMessag
   if (messages.length === 0) {
     return [];
   }
-  const openAIContext: OpenAIContext = { messages };
+  const systemPrompt = ctx.systemPrompt?.trim();
+  const openAIContext: OpenAIContext = systemPrompt ? { systemPrompt, messages } : { messages };
   const converted = convertMessages(
     CYGNAL_OPENAI_MODEL,
     openAIContext,

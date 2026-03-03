@@ -357,6 +357,8 @@ export type GuardrailEvaluationContext = {
   stage: GuardrailStage;
   /** The primary content to evaluate. */
   content: string;
+  /** Effective system prompt used for this model call (if available). */
+  systemPrompt?: string;
   /** Conversation history (if includeHistory is enabled). */
   history: AgentMessage[];
   /** Stage-specific metadata. */
@@ -499,6 +501,7 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
             const ctx: GuardrailEvaluationContext = {
               stage: "before_request",
               content,
+              systemPrompt: event.systemPrompt,
               history: includeHistory ? event.messages : [],
               metadata: {},
             };
@@ -545,6 +548,7 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
             const ctx: GuardrailEvaluationContext = {
               stage: "before_tool_call",
               content,
+              systemPrompt: event.systemPrompt,
               history: includeHistory ? event.messages : [],
               metadata: {
                 toolName: event.toolName,
@@ -603,6 +607,7 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
             const ctx: GuardrailEvaluationContext = {
               stage: "after_tool_call",
               content,
+              systemPrompt: event.systemPrompt,
               history: includeHistory ? event.messages : [],
               metadata: {
                 toolName: event.toolName,
@@ -669,6 +674,7 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
             const ctx: GuardrailEvaluationContext = {
               stage: "after_response",
               content,
+              systemPrompt: event.systemPrompt,
               history: includeHistory ? event.messages : [],
               metadata: {},
             };

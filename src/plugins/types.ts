@@ -427,6 +427,7 @@ export type PluginHookAfterResponseEvent = {
   assistantTexts: string[];
   messages: AgentMessage[];
   lastAssistant?: AssistantMessage;
+  systemPrompt?: string;
 };
 
 export type PluginHookAfterResponseResult = {
