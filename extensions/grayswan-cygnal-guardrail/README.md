@@ -28,6 +28,7 @@ threshold-based decision. It can:
           "policyId": "pol_example",
           "violationThreshold": 0.5,
           "timeoutMs": 30000,
+          "cygnalBypass": false,
           "failOpen": true,
           "guardrailPriority": 80,
           "stages": {
@@ -55,6 +56,7 @@ threshold-based decision. It can:
 - `apiBase` defaults to `https://api.grayswan.ai` (or `GRAYSWAN_API_BASE`).
 - `policyId` is optional and maps to `policy_id` in the monitor request.
 - `categories` and `reasoningMode` are forwarded to Cygnal.
+- `cygnalBypass: true` sets `metadata.cygnal_bypass=true` in requests so Cygnal runs in monitor-only bypass mode (returns violation score `0`).
 - `violationThreshold` can be set globally or per stage.
 - `blockOnMutation` and `blockOnIpi` default to `true` only for `afterToolCall`.
 - `guardrailPriority` controls execution order when multiple guardrails run.

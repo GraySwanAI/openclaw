@@ -666,16 +666,18 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
               (event.lastAssistant
                 ? extractTextFromContent(event.lastAssistant.content).trim()
                 : "");
-            if (!content) {
+
+            const includeHistory = afterResponseCfg?.includeHistory !== false;
+            const history = includeHistory ? event.messages : [];
+            if (!content && history.length === 0) {
               return;
             }
 
-            const includeHistory = afterResponseCfg?.includeHistory !== false;
             const ctx: GuardrailEvaluationContext = {
               stage: "after_response",
               content,
               systemPrompt: event.systemPrompt,
-              history: includeHistory ? event.messages : [],
+              history,
               metadata: {},
             };
 

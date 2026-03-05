@@ -54,6 +54,8 @@ type GrayswanGuardrailConfig = GuardrailBaseConfig & {
   violationThreshold?: number;
   /** Timeout for Gray Swan requests (ms). */
   timeoutMs?: number;
+  /** If true, send metadata.cygnal_bypass="true" so Cygnal only monitors. */
+  cygnalBypass?: boolean;
   stages?: {
     beforeRequest?: GrayswanStageConfig;
     beforeToolCall?: GrayswanStageConfig;
@@ -87,6 +89,7 @@ const GRAYSWAN_DEFAULT_BASE = "https://api.grayswan.ai";
 const GRAYSWAN_MONITOR_PATH = "/cygnal/monitor";
 const GRAYSWAN_DEFAULT_THRESHOLD = 0.5;
 const GRAYSWAN_DEFAULT_TIMEOUT_MS = 30_000;
+const GRAYSWAN_ERROR_BODY_MAX_CHARS = 2_000;
 
 const CYGNAL_OPENAI_MODEL: OpenAIModel<"openai-completions"> = {
   id: "gpt-4.1-mini",
@@ -167,6 +170,46 @@ function resolveGrayswanApiBase(cfg: GrayswanGuardrailConfig): string {
   const base =
     cfg.apiBase?.trim() || process.env.GRAYSWAN_API_BASE?.trim() || GRAYSWAN_DEFAULT_BASE;
   return base.replace(/\/+$/, "");
+}
+
+function isGuardrailDebugEnabled(): boolean {
+  const raw = process.env.OPENCLAW_GUARDRAIL_DEBUG?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+function logGrayswanDebug(
+  logger: OpenClawPluginApi["logger"],
+  message: string,
+  enabled: boolean,
+): void {
+  if (!enabled) {
+    return;
+  }
+  logger.error(`[grayswan-debug] ${message}`);
+}
+
+function getErrorName(err: unknown): string {
+  if (err && typeof err === "object" && "name" in err) {
+    return String((err as { name?: unknown }).name ?? "unknown");
+  }
+  return "unknown";
+}
+
+function getErrorCause(err: unknown): string | undefined {
+  if (err && typeof err === "object" && "cause" in err) {
+    const cause = (err as { cause?: unknown }).cause;
+    if (cause !== undefined && cause !== null) {
+      return String(cause);
+    }
+  }
+  return undefined;
+}
+
+function truncateForLog(value: string, maxChars: number): string {
+  if (value.length <= maxChars) {
+    return value;
+  }
+  return `${value.slice(0, maxChars)}... (${value.length} chars)`;
 }
 
 function toEmptyUsage(): Usage {
@@ -361,6 +404,7 @@ function buildMonitorPayload(
   cfg: GrayswanGuardrailConfig,
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = { messages };
+  const metadata: Record<string, unknown> = {};
   if (cfg.categories && Object.keys(cfg.categories).length > 0) {
     payload.categories = cfg.categories;
   }
@@ -370,29 +414,67 @@ function buildMonitorPayload(
   if (cfg.reasoningMode) {
     payload.reasoning_mode = cfg.reasoningMode;
   }
+  if (cfg.cygnalBypass === true) {
+    metadata.cygnal_bypass = "true";
+  }
+  if (Object.keys(metadata).length > 0) {
+    payload.metadata = metadata;
+  }
   return payload;
 }
 
 async function callGrayswanMonitor(params: {
   cfg: GrayswanGuardrailConfig;
   messages: OpenAICompatMessage[];
+  stage: GuardrailStage;
   logger: OpenClawPluginApi["logger"];
 }): Promise<GrayswanMonitorResponse | null> {
+  const debugEnabled = isGuardrailDebugEnabled();
+  const startedAt = Date.now();
   const apiKey = resolveGrayswanApiKey(params.cfg);
   if (!apiKey) {
     params.logger.warn("Gray Swan guardrail enabled but no API key configured.");
+    logGrayswanDebug(
+      params.logger,
+      `stage=${params.stage} monitor:skip reason=no_api_key elapsedMs=${Date.now() - startedAt}`,
+      debugEnabled,
+    );
     return null;
   }
   const apiBase = resolveGrayswanApiBase(params.cfg);
   const payload = buildMonitorPayload(params.messages, params.cfg);
+  const payloadJson = JSON.stringify(payload);
+  const payloadBytes = Buffer.byteLength(payloadJson, "utf8");
   const timeoutMs =
     typeof params.cfg.timeoutMs === "number" && params.cfg.timeoutMs > 0
       ? params.cfg.timeoutMs
       : GRAYSWAN_DEFAULT_TIMEOUT_MS;
   const url = `${apiBase}${GRAYSWAN_MONITOR_PATH}`;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timeoutFired = false;
+  let requestDispatched = false;
+  let responseStatus: number | undefined;
+  logGrayswanDebug(
+    params.logger,
+    `stage=${params.stage} monitor:start url=${url} timeoutMs=${timeoutMs} payloadBytes=${payloadBytes}`,
+    debugEnabled,
+  );
+  const timer = setTimeout(() => {
+    timeoutFired = true;
+    logGrayswanDebug(
+      params.logger,
+      `stage=${params.stage} monitor:timeout-fired timeoutMs=${timeoutMs} elapsedMs=${Date.now() - startedAt}`,
+      debugEnabled,
+    );
+    controller.abort();
+  }, timeoutMs);
   try {
+    requestDispatched = true;
+    logGrayswanDebug(
+      params.logger,
+      `stage=${params.stage} monitor:request-dispatched note="request was handed to fetch; upstream receipt not guaranteed yet"`,
+      debugEnabled,
+    );
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -400,20 +482,52 @@ async function callGrayswanMonitor(params: {
         "Content-Type": "application/json",
         "grayswan-api-key": apiKey,
       },
-      body: JSON.stringify(payload),
+      body: payloadJson,
       signal: controller.signal,
     });
+    responseStatus = response.status;
+    logGrayswanDebug(
+      params.logger,
+      `stage=${params.stage} monitor:response-headers status=${response.status} elapsedMs=${Date.now() - startedAt}`,
+      debugEnabled,
+    );
     if (!response.ok) {
       const details = await response.text().catch(() => "");
+      logGrayswanDebug(
+        params.logger,
+        `stage=${params.stage} monitor:http-error status=${response.status} elapsedMs=${Date.now() - startedAt} body=${truncateForLog(details, GRAYSWAN_ERROR_BODY_MAX_CHARS)}`,
+        debugEnabled,
+      );
       throw new Error(
         details
           ? `Gray Swan monitor returned ${response.status}: ${details}`
           : `Gray Swan monitor returned ${response.status}`,
       );
     }
-    return (await response.json()) as GrayswanMonitorResponse;
+    const parsed = (await response.json()) as GrayswanMonitorResponse;
+    logGrayswanDebug(
+      params.logger,
+      `stage=${params.stage} monitor:success status=${response.status} elapsedMs=${Date.now() - startedAt}`,
+      debugEnabled,
+    );
+    return parsed;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const name = getErrorName(err);
+    const cause = getErrorCause(err);
+    logGrayswanDebug(
+      params.logger,
+      `stage=${params.stage} monitor:exception name=${name} message=${message} cause=${cause ?? "none"} timeoutFired=${String(timeoutFired)} requestDispatched=${String(requestDispatched)} status=${responseStatus ?? "none"} elapsedMs=${Date.now() - startedAt}`,
+      debugEnabled,
+    );
+    throw err;
   } finally {
     clearTimeout(timer);
+    logGrayswanDebug(
+      params.logger,
+      `stage=${params.stage} monitor:done timeoutFired=${String(timeoutFired)} requestDispatched=${String(requestDispatched)} status=${responseStatus ?? "none"} elapsedMs=${Date.now() - startedAt}`,
+      debugEnabled,
+    );
   }
 }
 
@@ -484,6 +598,7 @@ const grayswanPlugin = createGuardrailPlugin<GrayswanGuardrailConfig>({
     const response = await callGrayswanMonitor({
       cfg: config,
       messages,
+      stage: ctx.stage,
       logger: api.logger,
     });
 

@@ -27,6 +27,10 @@
       "label": "Timeout (ms)",
       "advanced": true
     },
+    "cygnalBypass": {
+      "label": "Cygnal Bypass",
+      "help": "Set metadata.cygnal_bypass=true so Cygnal only monitors"
+    },
     "failOpen": {
       "label": "Fail Open",
       "help": "Allow requests on API errors"
@@ -68,6 +72,9 @@
       "timeoutMs": {
         "type": "integer",
         "minimum": 1000
+      },
+      "cygnalBypass": {
+        "type": "boolean"
       },
       "failOpen": {
         "type": "boolean"
