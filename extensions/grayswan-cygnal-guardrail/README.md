@@ -57,6 +57,7 @@ threshold-based decision. It can:
 - `policyId` is optional and maps to `policy_id` in the monitor request.
 - `categories` and `reasoningMode` are forwarded to Cygnal.
 - `cygnalBypass: true` sets `metadata.cygnal_bypass=true` in requests so Cygnal runs in monitor-only bypass mode (returns violation score `0`).
+- Monitor requests also include `metadata.openclaw_model_provider` and `metadata.openclaw_model_id` so Cygnal can attribute traffic to the runtime model/provider used by OpenClaw.
 - `violationThreshold` can be set globally or per stage.
 - `blockOnMutation` and `blockOnIpi` default to `true` only for `afterToolCall`.
 - `guardrailPriority` controls execution order when multiple guardrails run.

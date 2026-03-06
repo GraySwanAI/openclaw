@@ -402,6 +402,7 @@ function toGrayswanMessages(ctx: GuardrailEvaluationContext): OpenAICompatMessag
 function buildMonitorPayload(
   messages: OpenAICompatMessage[],
   cfg: GrayswanGuardrailConfig,
+  runtimeMetadata?: Pick<GuardrailEvaluationContext["metadata"], "modelProvider" | "modelId">,
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = { messages };
   const metadata: Record<string, unknown> = {};
@@ -417,6 +418,12 @@ function buildMonitorPayload(
   if (cfg.cygnalBypass === true) {
     metadata.cygnal_bypass = "true";
   }
+  if (runtimeMetadata?.modelProvider) {
+    metadata.openclaw_model_provider = runtimeMetadata.modelProvider;
+  }
+  if (runtimeMetadata?.modelId) {
+    metadata.openclaw_model_id = runtimeMetadata.modelId;
+  }
   if (Object.keys(metadata).length > 0) {
     payload.metadata = metadata;
   }
@@ -428,6 +435,7 @@ async function callGrayswanMonitor(params: {
   messages: OpenAICompatMessage[];
   stage: GuardrailStage;
   logger: OpenClawPluginApi["logger"];
+  runtimeMetadata?: Pick<GuardrailEvaluationContext["metadata"], "modelProvider" | "modelId">;
 }): Promise<GrayswanMonitorResponse | null> {
   const debugEnabled = isGuardrailDebugEnabled();
   const startedAt = Date.now();
@@ -442,7 +450,7 @@ async function callGrayswanMonitor(params: {
     return null;
   }
   const apiBase = resolveGrayswanApiBase(params.cfg);
-  const payload = buildMonitorPayload(params.messages, params.cfg);
+  const payload = buildMonitorPayload(params.messages, params.cfg, params.runtimeMetadata);
   const payloadJson = JSON.stringify(payload);
   const payloadBytes = Buffer.byteLength(payloadJson, "utf8");
   const timeoutMs =
@@ -600,6 +608,10 @@ const grayswanPlugin = createGuardrailPlugin<GrayswanGuardrailConfig>({
       messages,
       stage: ctx.stage,
       logger: api.logger,
+      runtimeMetadata: {
+        modelProvider: ctx.metadata.modelProvider,
+        modelId: ctx.metadata.modelId,
+      },
     });
 
     if (!response) {

@@ -330,6 +330,8 @@ export type PluginHookAgentContext = {
   agentId?: string;
   sessionKey?: string;
   sessionId?: string;
+  provider?: string;
+  modelId?: string;
   workspaceDir?: string;
   messageProvider?: string;
 };

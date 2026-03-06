@@ -333,8 +333,10 @@ import type {
   OpenClawPluginDefinition,
   PluginHookAfterResponseEvent,
   PluginHookAfterToolCallEvent,
+  PluginHookAgentContext,
   PluginHookBeforeRequestEvent,
   PluginHookBeforeToolCallEvent,
+  PluginHookToolContext,
 } from "./types.js";
 
 /**
@@ -367,6 +369,8 @@ export type GuardrailEvaluationContext = {
     toolCallId?: string;
     toolParams?: unknown;
     toolResult?: unknown;
+    modelProvider?: string;
+    modelId?: string;
   };
 };
 
@@ -491,7 +495,7 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
       if (isStageEnabled(beforeRequestCfg)) {
         api.on(
           "before_request",
-          async (event: PluginHookBeforeRequestEvent) => {
+          async (event: PluginHookBeforeRequestEvent, hookCtx: PluginHookAgentContext) => {
             const content = event.prompt.trim();
             if (!content) {
               return;
@@ -503,7 +507,10 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
               content,
               systemPrompt: event.systemPrompt,
               history: includeHistory ? event.messages : [],
-              metadata: {},
+              metadata: {
+                modelProvider: hookCtx.provider,
+                modelId: hookCtx.modelId,
+              },
             };
 
             let evaluation: GuardrailEvaluation | null = null;
@@ -542,7 +549,7 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
       if (isStageEnabled(beforeToolCallCfg)) {
         api.on(
           "before_tool_call",
-          async (event: PluginHookBeforeToolCallEvent) => {
+          async (event: PluginHookBeforeToolCallEvent, hookCtx: PluginHookToolContext) => {
             const content = buildToolCallSummary(event.toolName, event.toolCallId, event.params);
             const includeHistory = beforeToolCallCfg?.includeHistory !== false;
             const ctx: GuardrailEvaluationContext = {
@@ -554,6 +561,8 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
                 toolName: event.toolName,
                 toolCallId: event.toolCallId,
                 toolParams: event.params,
+                modelProvider: hookCtx.provider,
+                modelId: hookCtx.modelId,
               },
             };
 
@@ -597,7 +606,7 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
       if (isStageEnabled(afterToolCallCfg)) {
         api.on(
           "after_tool_call",
-          async (event: PluginHookAfterToolCallEvent) => {
+          async (event: PluginHookAfterToolCallEvent, hookCtx: PluginHookToolContext) => {
             const content = extractToolResultText(event.result).trim();
             if (!content) {
               return;
@@ -614,6 +623,8 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
                 toolCallId: event.toolCallId,
                 toolParams: event.params,
                 toolResult: event.result,
+                modelProvider: hookCtx.provider,
+                modelId: hookCtx.modelId,
               },
             };
 
@@ -660,7 +671,7 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
       if (isStageEnabled(afterResponseCfg)) {
         api.on(
           "after_response",
-          async (event: PluginHookAfterResponseEvent) => {
+          async (event: PluginHookAfterResponseEvent, hookCtx: PluginHookAgentContext) => {
             const content =
               event.assistantTexts.join("\n").trim() ||
               (event.lastAssistant
@@ -678,7 +689,10 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
               content,
               systemPrompt: event.systemPrompt,
               history,
-              metadata: {},
+              metadata: {
+                modelProvider: hookCtx.provider,
+                modelId: hookCtx.modelId,
+              },
             };
 
             let evaluation: GuardrailEvaluation | null = null;
