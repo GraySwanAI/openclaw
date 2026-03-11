@@ -10,6 +10,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AgentMessage, AgentToolResult } from "@mariozechner/pi-agent-core";
+import { runEmbeddedPiAgent } from "../agents/pi-embedded.js";
 
 // ============================================================================
 // Types
@@ -235,22 +236,9 @@ export function resolveStageConfig<T extends BaseStageConfig>(
 
 /**
  * Load the embedded Pi agent runner function.
- * Tries source checkout first, then bundled install.
  */
 export async function loadRunEmbeddedPiAgent(): Promise<RunEmbeddedPiAgentFn> {
-  // Source checkout (tests/dev) - from src/plugins/ to src/agents/
-  try {
-    const mod = (await import("../agents/pi-embedded-runner.js")) as {
-      runEmbeddedPiAgent?: unknown;
-    };
-    if (typeof mod.runEmbeddedPiAgent === "function") {
-      return mod.runEmbeddedPiAgent as RunEmbeddedPiAgentFn;
-    }
-  } catch {
-    // ignore
-  }
-
-  throw new Error("Internal error: runEmbeddedPiAgent not available");
+  return runEmbeddedPiAgent as unknown as RunEmbeddedPiAgentFn;
 }
 
 /**

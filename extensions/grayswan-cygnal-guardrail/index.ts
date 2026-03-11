@@ -5,7 +5,7 @@
  * Inspects and optionally blocks requests, tool calls, tool results, and responses.
  */
 
-import { convertMessages } from "@mariozechner/pi-ai/dist/providers/openai-completions.js";
+import { convertMessages } from "@mariozechner/pi-ai";
 import type {
   Context as OpenAIContext,
   Message as OpenAIMessage,
@@ -14,7 +14,7 @@ import type {
   TextContent,
   ToolCall,
   Usage,
-} from "@mariozechner/pi-ai/dist/types.js";
+} from "@mariozechner/pi-ai";
 import {
   type BaseStageConfig,
   type GuardrailBaseConfig,

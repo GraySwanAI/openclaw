@@ -187,7 +187,8 @@ export function createGatewayCredentialPlan(params: {
   const remoteUrlConfigured = Boolean(trimToUndefined(remote?.url));
   const tailscaleRemoteExposure =
     gateway?.tailscale?.mode === "serve" || gateway?.tailscale?.mode === "funnel";
-  const remoteEnabled = remote?.enabled !== false;
+  // gateway.remote no longer has an enabled toggle; remote credentials are always eligible.
+  const remoteEnabled = true;
   const remoteConfiguredSurface = remoteMode || remoteUrlConfigured || tailscaleRemoteExposure;
   const remoteTokenFallbackActive = localTokenCanWin && !envToken && !localToken.configured;
   const remotePasswordFallbackActive = !envPassword && !localPassword.configured && passwordCanWin;
