@@ -509,7 +509,7 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
               stage: "before_request",
               content,
               systemPrompt: event.systemPrompt,
-              history: includeHistory ? event.messages : [],
+              history: includeHistory ? (event.messages ?? []) : [],
               tools: event.tools ?? [],
               metadata: {
                 modelProvider: hookCtx.provider,
@@ -560,7 +560,7 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
               stage: "before_tool_call",
               content,
               systemPrompt: event.systemPrompt,
-              history: includeHistory ? event.messages : [],
+              history: includeHistory ? (event.messages ?? []) : [],
               tools: [],
               metadata: {
                 toolName: event.toolName,
@@ -622,7 +622,7 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
               stage: "after_tool_call",
               content,
               systemPrompt: event.systemPrompt,
-              history: includeHistory ? event.messages : [],
+              history: includeHistory ? (event.messages ?? []) : [],
               tools: [],
               metadata: {
                 toolName: event.toolName,

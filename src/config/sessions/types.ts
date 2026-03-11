@@ -82,6 +82,10 @@ export type SessionEntry = {
   forkedFromParent?: boolean;
   /** Subagent spawn depth (0 = main, 1 = sub-agent, 2 = sub-sub-agent). */
   spawnDepth?: number;
+  /** Explicit role assigned at spawn time for subagent tool policy/control decisions. */
+  subagentRole?: "orchestrator" | "leaf";
+  /** Explicit control scope assigned at spawn time for subagent control decisions. */
+  subagentControlScope?: "children" | "none";
   systemSent?: boolean;
   abortedLastRun?: boolean;
   /**
@@ -225,12 +229,31 @@ export function setSessionRuntimeModel(
   return true;
 }
 
-export function mergeSessionEntry(
+export type SessionEntryMergePolicy = "touch-activity" | "preserve-activity";
+
+type MergeSessionEntryOptions = {
+  policy?: SessionEntryMergePolicy;
+  now?: number;
+};
+
+function resolveMergedUpdatedAt(
   existing: SessionEntry | undefined,
   patch: Partial<SessionEntry>,
+  options?: MergeSessionEntryOptions,
+): number {
+  if (options?.policy === "preserve-activity" && existing) {
+    return existing.updatedAt ?? patch.updatedAt ?? options.now ?? Date.now();
+  }
+  return Math.max(existing?.updatedAt ?? 0, patch.updatedAt ?? 0, options?.now ?? Date.now());
+}
+
+export function mergeSessionEntryWithPolicy(
+  existing: SessionEntry | undefined,
+  patch: Partial<SessionEntry>,
+  options?: MergeSessionEntryOptions,
 ): SessionEntry {
   const sessionId = patch.sessionId ?? existing?.sessionId ?? crypto.randomUUID();
-  const updatedAt = Math.max(existing?.updatedAt ?? 0, patch.updatedAt ?? 0, Date.now());
+  const updatedAt = resolveMergedUpdatedAt(existing, patch, options);
   if (!existing) {
     return normalizeSessionRuntimeModelFields({ ...patch, sessionId, updatedAt });
   }
@@ -246,6 +269,22 @@ export function mergeSessionEntry(
     }
   }
   return normalizeSessionRuntimeModelFields(next);
+}
+
+export function mergeSessionEntry(
+  existing: SessionEntry | undefined,
+  patch: Partial<SessionEntry>,
+): SessionEntry {
+  return mergeSessionEntryWithPolicy(existing, patch);
+}
+
+export function mergeSessionEntryPreserveActivity(
+  existing: SessionEntry | undefined,
+  patch: Partial<SessionEntry>,
+): SessionEntry {
+  return mergeSessionEntryWithPolicy(existing, patch, {
+    policy: "preserve-activity",
+  });
 }
 
 export function resolveFreshSessionTotalTokens(
@@ -293,6 +332,15 @@ export type SessionSystemPromptReport = {
   workspaceDir?: string;
   bootstrapMaxChars?: number;
   bootstrapTotalMaxChars?: number;
+  bootstrapTruncation?: {
+    warningMode?: "off" | "once" | "always";
+    warningShown?: boolean;
+    promptWarningSignature?: string;
+    warningSignaturesSeen?: string[];
+    truncatedFiles?: number;
+    nearLimitFiles?: number;
+    totalNearLimit?: boolean;
+  };
   sandbox?: {
     mode?: string;
     sandboxed?: boolean;

@@ -10,6 +10,9 @@ import type { AnyAgentTool } from "./tools/common.js";
 export type HookContext = {
   agentId?: string;
   sessionKey?: string;
+  /** Ephemeral session UUID — regenerated on /new and /reset. */
+  sessionId?: string;
+  runId?: string;
   loopDetection?: ToolLoopDetectionConfig;
   beforeToolCallHookIncludeHistory?: boolean;
   getMessages?: () => AgentMessage[];
@@ -25,6 +28,21 @@ const MAX_TRACKED_ADJUSTED_PARAMS = 1024;
 const afterToolCallHookHandledByToolCallId = new Set<string>();
 const LOOP_WARNING_BUCKET_SIZE = 10;
 const MAX_LOOP_WARNING_KEYS = 256;
+let beforeToolCallRuntimePromise: Promise<
+  typeof import("./pi-tools.before-tool-call.runtime.js")
+> | null = null;
+
+function loadBeforeToolCallRuntime() {
+  beforeToolCallRuntimePromise ??= import("./pi-tools.before-tool-call.runtime.js");
+  return beforeToolCallRuntimePromise;
+}
+
+function buildAdjustedParamsKey(params: { runId?: string; toolCallId: string }): string {
+  if (params.runId && params.runId.trim()) {
+    return `${params.runId}:${params.toolCallId}`;
+  }
+  return params.toolCallId;
+}
 
 function shouldEmitLoopWarning(state: SessionState, warningKey: string, count: number): boolean {
   if (!state.toolLoopWarningBuckets) {
@@ -57,8 +75,7 @@ async function recordLoopOutcome(args: {
     return;
   }
   try {
-    const { getDiagnosticSessionState } = await import("../logging/diagnostic-session-state.js");
-    const { recordToolCallOutcome } = await import("./tool-loop-detection.js");
+    const { getDiagnosticSessionState, recordToolCallOutcome } = await loadBeforeToolCallRuntime();
     const sessionState = getDiagnosticSessionState({
       sessionKey: args.ctx.sessionKey,
       sessionId: args.ctx?.agentId,
@@ -86,10 +103,8 @@ export async function runBeforeToolCallHook(args: {
   const params = args.params;
 
   if (args.ctx?.sessionKey) {
-    const { getDiagnosticSessionState } = await import("../logging/diagnostic-session-state.js");
-    const { logToolLoopAction } = await import("../logging/diagnostic.js");
-    const { detectToolCallLoop, recordToolCall } = await import("./tool-loop-detection.js");
-
+    const { getDiagnosticSessionState, logToolLoopAction, detectToolCallLoop, recordToolCall } =
+      await loadBeforeToolCallRuntime();
     const sessionState = getDiagnosticSessionState({
       sessionKey: args.ctx.sessionKey,
       sessionId: args.ctx?.agentId,
@@ -148,19 +163,25 @@ export async function runBeforeToolCallHook(args: {
     const includeHistory = args.ctx?.beforeToolCallHookIncludeHistory === true;
     const messages = includeHistory ? (args.ctx?.getMessages?.() ?? []) : [];
     const systemPrompt = args.ctx?.getSystemPrompt?.();
+    const toolContext = {
+      toolName,
+      ...(args.ctx?.agentId ? { agentId: args.ctx.agentId } : {}),
+      ...(args.ctx?.sessionKey ? { sessionKey: args.ctx.sessionKey } : {}),
+      ...(args.ctx?.sessionId ? { sessionId: args.ctx.sessionId } : {}),
+      ...(args.ctx?.runId ? { runId: args.ctx.runId } : {}),
+      ...(args.toolCallId ? { toolCallId: args.toolCallId } : {}),
+    };
     const hookResult = await hookRunner.runBeforeToolCall(
       {
         toolName,
         toolCallId: String(toolCallId),
         params: normalizedParams,
+        ...(args.ctx?.runId ? { runId: args.ctx.runId } : {}),
+        ...(args.toolCallId ? { toolCallId: args.toolCallId } : {}),
         messages,
         systemPrompt,
       },
-      {
-        toolName,
-        agentId: args.ctx?.agentId,
-        sessionKey: args.ctx?.sessionKey,
-      },
+      toolContext,
     );
 
     if (hookResult?.block) {
@@ -206,7 +227,8 @@ export function wrapToolWithBeforeToolCallHook(
         throw new Error(outcome.reason);
       }
       if (toolCallId) {
-        adjustedParamsByToolCallId.set(toolCallId, outcome.params);
+        const adjustedParamsKey = buildAdjustedParamsKey({ runId: ctx?.runId, toolCallId });
+        adjustedParamsByToolCallId.set(adjustedParamsKey, outcome.params);
         if (adjustedParamsByToolCallId.size > MAX_TRACKED_ADJUSTED_PARAMS) {
           const oldest = adjustedParamsByToolCallId.keys().next().value;
           if (oldest) {
@@ -249,9 +271,10 @@ export function isToolWrappedWithBeforeToolCallHook(tool: AnyAgentTool): boolean
   return taggedTool[BEFORE_TOOL_CALL_WRAPPED] === true;
 }
 
-export function consumeAdjustedParamsForToolCall(toolCallId: string): unknown {
-  const params = adjustedParamsByToolCallId.get(toolCallId);
-  adjustedParamsByToolCallId.delete(toolCallId);
+export function consumeAdjustedParamsForToolCall(toolCallId: string, runId?: string): unknown {
+  const adjustedParamsKey = buildAdjustedParamsKey({ runId, toolCallId });
+  const params = adjustedParamsByToolCallId.get(adjustedParamsKey);
+  adjustedParamsByToolCallId.delete(adjustedParamsKey);
   return params;
 }
 
@@ -281,6 +304,7 @@ export function consumeAfterToolCallHookHandled(toolCallId: string): boolean {
 
 export const __testing = {
   BEFORE_TOOL_CALL_WRAPPED,
+  buildAdjustedParamsKey,
   adjustedParamsByToolCallId,
   runBeforeToolCallHook,
   isPlainObject,

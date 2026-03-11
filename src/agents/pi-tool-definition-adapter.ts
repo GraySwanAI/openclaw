@@ -13,8 +13,6 @@ import { isPlainObject } from "../utils.js";
 import type { ClientToolDefinition } from "./pi-embedded-runner/run/params.js";
 import type { HookContext } from "./pi-tools.before-tool-call.js";
 import {
-  consumeAdjustedParamsForToolCall,
-  markAfterToolCallHookHandled,
   isToolWrappedWithBeforeToolCallHook,
   runBeforeToolCallHook,
 } from "./pi-tools.before-tool-call.js";
@@ -209,6 +207,7 @@ export function toToolDefinitions(
                 toolName: normalizedName,
                 toolCallId: String(safeToolCallId),
                 params: paramsRecord,
+                runId: hookOptions.context.runId,
                 messages: hookOptions.getMessages(),
                 systemPrompt: hookOptions.systemPrompt,
               },
@@ -253,52 +252,10 @@ export function toToolDefinitions(
         const executeParams = effectiveParams;
         try {
           const rawResult = await tool.execute(toolCallId, executeParams, signal, onUpdate);
-          let result = normalizeToolExecutionResult({
+          const result = normalizeToolExecutionResult({
             toolName: normalizedName,
             result: rawResult,
           });
-          const afterParams = beforeHookWrapped
-            ? (consumeAdjustedParamsForToolCall(toolCallId) ?? executeParams)
-            : executeParams;
-
-          if (hookRunner?.hasHooks("after_tool_call")) {
-            try {
-              if (toolCallId) {
-                markAfterToolCallHookHandled(toolCallId);
-              }
-              const safeToolCallId = toolCallId || `unknown-${Date.now()}`;
-              const paramsRecord = isPlainObject(afterParams) ? afterParams : {};
-              const hookResult = await hookRunner.runAfterToolCall(
-                {
-                  toolName: normalizedName,
-                  toolCallId: String(safeToolCallId),
-                  params: paramsRecord,
-                  result,
-                  messages: hookOptions?.getMessages() ?? [],
-                  systemPrompt: hookOptions?.systemPrompt,
-                },
-                toolContext,
-              );
-              if (hookResult?.block) {
-                return (
-                  hookResult.result ??
-                  jsonResult({
-                    status: "blocked",
-                    tool: normalizedName,
-                    message: hookResult.blockReason ?? "Tool result blocked by policy.",
-                  })
-                );
-              }
-              if (hookResult?.result) {
-                result = hookResult.result;
-              }
-            } catch (hookErr) {
-              logDebug(
-                `after_tool_call hook failed: tool=${normalizedName} error=${String(hookErr)}`,
-              );
-            }
-          }
-
           return result;
         } catch (err) {
           if (signal?.aborted) {
@@ -312,62 +269,17 @@ export function toToolDefinitions(
             throw err;
           }
 
-          const afterParams = beforeHookWrapped
-            ? (consumeAdjustedParamsForToolCall(toolCallId) ?? executeParams)
-            : executeParams;
-
           const described = describeToolExecutionError(err);
           if (described.stack && described.stack !== described.message) {
             logDebug(`tools: ${normalizedName} failed stack:\n${described.stack}`);
           }
           logError(`[tools] ${normalizedName} failed: ${described.message}`);
 
-          let errorResult = jsonResult({
+          return jsonResult({
             status: "error",
             tool: normalizedName,
             error: described.message,
           });
-
-          if (hookRunner?.hasHooks("after_tool_call")) {
-            try {
-              if (toolCallId) {
-                markAfterToolCallHookHandled(toolCallId);
-              }
-              const safeToolCallId = toolCallId || `unknown-${Date.now()}`;
-              const paramsRecord = isPlainObject(afterParams) ? afterParams : {};
-              const hookResult = await hookRunner.runAfterToolCall(
-                {
-                  toolName: normalizedName,
-                  toolCallId: String(safeToolCallId),
-                  params: paramsRecord,
-                  result: errorResult,
-                  error: described.message,
-                  messages: hookOptions?.getMessages() ?? [],
-                  systemPrompt: hookOptions?.systemPrompt,
-                },
-                toolContext,
-              );
-              if (hookResult?.block) {
-                return (
-                  hookResult.result ??
-                  jsonResult({
-                    status: "blocked",
-                    tool: normalizedName,
-                    message: hookResult.blockReason ?? "Tool result blocked by policy.",
-                  })
-                );
-              }
-              if (hookResult?.result) {
-                errorResult = hookResult.result;
-              }
-            } catch (hookErr) {
-              logDebug(
-                `after_tool_call hook failed: tool=${normalizedName} error=${String(hookErr)}`,
-              );
-            }
-          }
-
-          return errorResult;
         }
       },
     } satisfies ToolDefinition;
@@ -421,6 +333,7 @@ export function toClientToolDefinitions(
                 toolName: normalizedName,
                 toolCallId: String(safeToolCallId),
                 params: effectiveParams as Record<string, unknown>,
+                runId: hookOptions.context.runId,
                 messages: hookOptions.getMessages(),
                 systemPrompt: hookOptions.systemPrompt,
               },
@@ -459,45 +372,11 @@ export function toClientToolDefinitions(
         }
 
         // Return a pending result - the client will execute this tool
-        let result = jsonResult({
+        return jsonResult({
           status: "pending",
           tool: func.name,
           message: "Tool execution delegated to client",
         });
-
-        // Run after_tool_call hooks
-        if (hookRunner?.hasHooks("after_tool_call") && hookOptions && toolContext) {
-          if (toolCallId) {
-            markAfterToolCallHookHandled(toolCallId);
-          }
-          const safeToolCallId = toolCallId ?? `unknown-${Date.now()}`;
-          const hookResult = await hookRunner.runAfterToolCall(
-            {
-              toolName: normalizedName,
-              toolCallId: String(safeToolCallId),
-              params: effectiveParams as Record<string, unknown>,
-              result,
-              messages: hookOptions.getMessages(),
-              systemPrompt: hookOptions.systemPrompt,
-            },
-            toolContext,
-          );
-          if (hookResult?.block) {
-            return (
-              hookResult.result ??
-              jsonResult({
-                status: "blocked",
-                tool: normalizedName,
-                message: hookResult.blockReason ?? "Tool result blocked by policy.",
-              })
-            );
-          }
-          if (hookResult?.result) {
-            result = hookResult.result;
-          }
-        }
-
-        return result;
       },
     } satisfies ToolDefinition;
   });
