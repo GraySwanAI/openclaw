@@ -18,6 +18,7 @@ import type {
   PluginHookAgentContext,
   PluginHookBeforeAgentStartResult,
   PluginHookBeforePromptBuildResult,
+  PluginHookToolInfo,
 } from "../../../plugins/types.js";
 import { isSubagentSessionKey } from "../../../routing/session-key.js";
 import { resolveSignalReactionLevel } from "../../../signal/reaction-level.js";
@@ -346,6 +347,37 @@ export function wrapStreamFnTrimToolCallNames(
     }
     return wrapStreamTrimToolCallNames(maybeStream, allowedToolNames);
   };
+}
+
+type GuardrailToolDefinitionLike = {
+  name?: unknown;
+  description?: unknown;
+  parameters?: unknown;
+};
+
+function toGuardrailToolInfos(
+  toolDefs: ReadonlyArray<GuardrailToolDefinitionLike>,
+): PluginHookToolInfo[] {
+  const toolInfos: PluginHookToolInfo[] = [];
+  for (const toolDef of toolDefs) {
+    const name = typeof toolDef.name === "string" ? toolDef.name.trim() : "";
+    if (!name) {
+      continue;
+    }
+    toolInfos.push({
+      name,
+      description: typeof toolDef.description === "string" ? toolDef.description : "",
+      parameters: toolDef.parameters ?? {},
+    });
+  }
+  return toolInfos;
+}
+
+function buildGuardrailToolInfos(params: {
+  builtInTools: ReadonlyArray<GuardrailToolDefinitionLike>;
+  customTools: ReadonlyArray<GuardrailToolDefinitionLike>;
+}): PluginHookToolInfo[] {
+  return toGuardrailToolInfos([...params.builtInTools, ...params.customTools]);
 }
 
 export async function resolvePromptBuildHookResult(params: {
@@ -881,6 +913,10 @@ export async function runEmbeddedAttempt(
         : [];
 
       const allCustomTools = [...customTools, ...clientToolDefs];
+      const guardrailToolInfos = buildGuardrailToolInfos({
+        builtInTools,
+        customTools: allCustomTools,
+      });
 
       ({ session } = await createAgentSession({
         cwd: resolvedWorkspace,
@@ -1331,6 +1367,7 @@ export async function runEmbeddedAttempt(
               prompt: effectivePrompt,
               messages: activeSession.messages,
               systemPrompt: appendPrompt,
+              tools: guardrailToolInfos,
             },
             {
               agentId: sessionAgentId,
@@ -1603,6 +1640,7 @@ export async function runEmbeddedAttempt(
               messages: messagesSnapshot,
               lastAssistant,
               systemPrompt: appendPrompt,
+              tools: guardrailToolInfos,
             },
             {
               agentId: sessionAgentId,

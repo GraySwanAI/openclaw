@@ -408,11 +408,18 @@ export type PluginHookAgentEndEvent = {
   durationMs?: number;
 };
 
+export type PluginHookToolInfo = {
+  name: string;
+  description: string;
+  parameters: unknown;
+};
+
 // before_request hook (guardrail stage: inspect/modify/block before model call)
 export type PluginHookBeforeRequestEvent = {
   prompt: string;
   messages: AgentMessage[];
   systemPrompt?: string;
+  tools?: PluginHookToolInfo[];
 };
 
 export type PluginHookBeforeRequestResult = {
@@ -430,6 +437,7 @@ export type PluginHookAfterResponseEvent = {
   messages: AgentMessage[];
   lastAssistant?: AssistantMessage;
   systemPrompt?: string;
+  tools?: PluginHookToolInfo[];
 };
 
 export type PluginHookAfterResponseResult = {

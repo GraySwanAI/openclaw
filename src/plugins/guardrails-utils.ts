@@ -337,6 +337,7 @@ import type {
   PluginHookBeforeRequestEvent,
   PluginHookBeforeToolCallEvent,
   PluginHookToolContext,
+  PluginHookToolInfo,
 } from "./types.js";
 
 /**
@@ -363,6 +364,8 @@ export type GuardrailEvaluationContext = {
   systemPrompt?: string;
   /** Conversation history (if includeHistory is enabled). */
   history: AgentMessage[];
+  /** Tool definitions exposed to the model for this run. */
+  tools: PluginHookToolInfo[];
   /** Stage-specific metadata. */
   metadata: {
     toolName?: string;
@@ -507,6 +510,7 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
               content,
               systemPrompt: event.systemPrompt,
               history: includeHistory ? event.messages : [],
+              tools: event.tools ?? [],
               metadata: {
                 modelProvider: hookCtx.provider,
                 modelId: hookCtx.modelId,
@@ -557,6 +561,7 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
               content,
               systemPrompt: event.systemPrompt,
               history: includeHistory ? event.messages : [],
+              tools: [],
               metadata: {
                 toolName: event.toolName,
                 toolCallId: event.toolCallId,
@@ -618,6 +623,7 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
               content,
               systemPrompt: event.systemPrompt,
               history: includeHistory ? event.messages : [],
+              tools: [],
               metadata: {
                 toolName: event.toolName,
                 toolCallId: event.toolCallId,
@@ -689,6 +695,7 @@ export function createGuardrailPlugin<TConfig extends GuardrailBaseConfig>(
               content,
               systemPrompt: event.systemPrompt,
               history,
+              tools: event.tools ?? [],
               metadata: {
                 modelProvider: hookCtx.provider,
                 modelId: hookCtx.modelId,

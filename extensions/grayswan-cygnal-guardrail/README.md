@@ -58,6 +58,7 @@ threshold-based decision. It can:
 - `categories` and `reasoningMode` are forwarded to Cygnal.
 - `cygnalBypass: true` sets `metadata.cygnal_bypass=true` in requests so Cygnal runs in monitor-only bypass mode (returns violation score `0`).
 - Monitor requests also include `metadata.openclaw_model_provider` and `metadata.openclaw_model_id` so Cygnal can attribute traffic to the runtime model/provider used by OpenClaw.
+- Monitor requests include a top-level `tools` array (OpenAI function-tool format) based on the tool definitions exposed to the model for that run.
 - `violationThreshold` can be set globally or per stage.
 - `blockOnMutation` and `blockOnIpi` default to `true` only for `afterToolCall`.
 - `guardrailPriority` controls execution order when multiple guardrails run.
