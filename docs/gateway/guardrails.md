@@ -1,9 +1,9 @@
 ---
-summary: "Guardrail stages, plugin configuration, and available guardrail plugins (Gray Swan, GPT-OSS-Safeguard)"
+summary: "Guardrail stages, plugin configuration, and available guardrail plugins (Gray Swan, GPT-OSS-Safeguard, Straja)"
 read_when:
   - Adding or tuning LLM guardrails
   - Investigating guardrail blocks
-  - Configuring Gray Swan or GPT-OSS-Safeguard
+  - Configuring Gray Swan, or GPT-OSS-Safeguard, Straja
 title: "Guardrails"
 ---
 
@@ -232,6 +232,43 @@ Notes:
   - `json`: Returns `{"violation": 0|1, "policy_category": "..."}`
   - `rich`: Returns JSON with additional `confidence` and `rationale` fields
 - `maxTokens`: Default `500` (higher than most guardrails to accommodate reasoning output)
+
+### Straja Guard
+
+Straja Guard uses Straja’s Guard API + Toolgate to enforce pre-model, post-model,
+and pre-execution tool checks via HTTP hooks.
+
+Configuration example:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "straja-guard": {
+        "enabled": true,
+        "config": {
+          "baseUrl": "http://localhost:8080",
+          "apiKey": "project-api-key-from-straja-config",
+          "timeoutMs": 15000,
+          "failOpen": true,
+          "guardrailPriority": 80,
+          "stages": {
+            "beforeRequest": { "enabled": true, "mode": "block" },
+            "beforeToolCall": { "enabled": true, "mode": "block" },
+            "afterResponse": { "enabled": true, "mode": "monitor" }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Notes:
+
+- `baseUrl` defaults to `http://localhost:8080`.
+- `apiKey` should match one of the `projects[].api_keys` values in your Straja config. You can optionally create a dedicated project for OpenClaw in Straja's config to keep usage isolated.
+- Toolgate blocks return errors; warnings are logged and allowed.
 
 ## Per-stage options
 
