@@ -45,6 +45,38 @@
     "maxTokens": {
       "label": "Max Tokens",
       "advanced": true
+    },
+    "stages.beforeRequest.enabled": {
+      "label": "Enabled",
+      "help": "Enable guardrail check before user requests"
+    },
+    "stages.beforeRequest.mode": {
+      "label": "Mode",
+      "help": "Block violations or monitor only"
+    },
+    "stages.beforeToolCall.enabled": {
+      "label": "Enabled",
+      "help": "Enable guardrail check before tool calls"
+    },
+    "stages.beforeToolCall.mode": {
+      "label": "Mode",
+      "help": "Block violations or monitor only"
+    },
+    "stages.afterToolCall.enabled": {
+      "label": "Enabled",
+      "help": "Enable guardrail check after tool calls"
+    },
+    "stages.afterToolCall.mode": {
+      "label": "Mode",
+      "help": "Block violations or monitor only"
+    },
+    "stages.afterResponse.enabled": {
+      "label": "Enabled",
+      "help": "Enable guardrail check after model responses"
+    },
+    "stages.afterResponse.mode": {
+      "label": "Mode",
+      "help": "Block violations or monitor only"
     }
   },
   "configSchema": {
@@ -94,38 +126,84 @@
         "additionalProperties": false,
         "properties": {
           "beforeRequest": {
-            "$ref": "#/$defs/stageConfig"
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "mode": {
+                "type": "string",
+                "enum": ["block", "monitor"]
+              },
+              "blockMode": {
+                "type": "string",
+                "enum": ["replace", "append"]
+              },
+              "includeHistory": {
+                "type": "boolean"
+              }
+            }
           },
           "beforeToolCall": {
-            "$ref": "#/$defs/stageConfig"
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "mode": {
+                "type": "string",
+                "enum": ["block", "monitor"]
+              },
+              "blockMode": {
+                "type": "string",
+                "enum": ["replace", "append"]
+              },
+              "includeHistory": {
+                "type": "boolean"
+              }
+            }
           },
           "afterToolCall": {
-            "$ref": "#/$defs/stageConfig"
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "mode": {
+                "type": "string",
+                "enum": ["block", "monitor"]
+              },
+              "blockMode": {
+                "type": "string",
+                "enum": ["replace", "append"]
+              },
+              "includeHistory": {
+                "type": "boolean"
+              }
+            }
           },
           "afterResponse": {
-            "$ref": "#/$defs/stageConfig"
-          }
-        }
-      }
-    },
-    "$defs": {
-      "stageConfig": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "mode": {
-            "type": "string",
-            "enum": ["block", "monitor"]
-          },
-          "blockMode": {
-            "type": "string",
-            "enum": ["replace", "append"]
-          },
-          "includeHistory": {
-            "type": "boolean"
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "mode": {
+                "type": "string",
+                "enum": ["block", "monitor"]
+              },
+              "blockMode": {
+                "type": "string",
+                "enum": ["replace", "append"]
+              },
+              "includeHistory": {
+                "type": "boolean"
+              }
+            }
           }
         }
       }

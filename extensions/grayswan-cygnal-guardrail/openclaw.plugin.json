@@ -35,6 +35,46 @@
       "label": "Fail Open",
       "help": "Allow requests on API errors"
     },
+    "stages.beforeRequest.enabled": {
+      "label": "Enabled",
+      "help": "Enable guardrail check before user requests"
+    },
+    "stages.beforeRequest.mode": {
+      "label": "Mode",
+      "help": "Block violations or monitor only"
+    },
+    "stages.beforeToolCall.enabled": {
+      "label": "Enabled",
+      "help": "Enable guardrail check before tool calls"
+    },
+    "stages.beforeToolCall.mode": {
+      "label": "Mode",
+      "help": "Block violations or monitor only"
+    },
+    "stages.afterToolCall.enabled": {
+      "label": "Enabled",
+      "help": "Enable guardrail check after tool calls"
+    },
+    "stages.afterToolCall.mode": {
+      "label": "Mode",
+      "help": "Block violations or monitor only"
+    },
+    "stages.afterToolCall.blockOnMutation": {
+      "label": "Block on Mutation",
+      "help": "Block when mutation/jailbreak attempt detected"
+    },
+    "stages.afterToolCall.blockOnIpi": {
+      "label": "Block on IPI",
+      "help": "Block when indirect prompt injection detected"
+    },
+    "stages.afterResponse.enabled": {
+      "label": "Enabled",
+      "help": "Enable guardrail check after model responses"
+    },
+    "stages.afterResponse.mode": {
+      "label": "Mode",
+      "help": "Block violations or monitor only"
+    },
     "guardrailPriority": {
       "label": "Guardrail Priority",
       "advanced": true,
@@ -87,49 +127,128 @@
         "additionalProperties": false,
         "properties": {
           "beforeRequest": {
-            "$ref": "#/$defs/stageConfig"
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "mode": {
+                "type": "string",
+                "enum": ["block", "monitor"]
+              },
+              "violationThreshold": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "blockMode": {
+                "type": "string",
+                "enum": ["replace", "append"]
+              },
+              "blockOnMutation": {
+                "type": "boolean"
+              },
+              "blockOnIpi": {
+                "type": "boolean"
+              },
+              "includeHistory": {
+                "type": "boolean"
+              }
+            }
           },
           "beforeToolCall": {
-            "$ref": "#/$defs/stageConfig"
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "mode": {
+                "type": "string",
+                "enum": ["block", "monitor"]
+              },
+              "violationThreshold": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "blockMode": {
+                "type": "string",
+                "enum": ["replace", "append"]
+              },
+              "blockOnMutation": {
+                "type": "boolean"
+              },
+              "blockOnIpi": {
+                "type": "boolean"
+              },
+              "includeHistory": {
+                "type": "boolean"
+              }
+            }
           },
           "afterToolCall": {
-            "$ref": "#/$defs/stageConfig"
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "mode": {
+                "type": "string",
+                "enum": ["block", "monitor"]
+              },
+              "violationThreshold": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "blockMode": {
+                "type": "string",
+                "enum": ["replace", "append"]
+              },
+              "blockOnMutation": {
+                "type": "boolean"
+              },
+              "blockOnIpi": {
+                "type": "boolean"
+              },
+              "includeHistory": {
+                "type": "boolean"
+              }
+            }
           },
           "afterResponse": {
-            "$ref": "#/$defs/stageConfig"
-          }
-        }
-      }
-    },
-    "$defs": {
-      "stageConfig": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "mode": {
-            "type": "string",
-            "enum": ["block", "monitor"]
-          },
-          "violationThreshold": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          },
-          "blockMode": {
-            "type": "string",
-            "enum": ["replace", "append"]
-          },
-          "blockOnMutation": {
-            "type": "boolean"
-          },
-          "blockOnIpi": {
-            "type": "boolean"
-          },
-          "includeHistory": {
-            "type": "boolean"
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "mode": {
+                "type": "string",
+                "enum": ["block", "monitor"]
+              },
+              "violationThreshold": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "blockMode": {
+                "type": "string",
+                "enum": ["replace", "append"]
+              },
+              "blockOnMutation": {
+                "type": "boolean"
+              },
+              "blockOnIpi": {
+                "type": "boolean"
+              },
+              "includeHistory": {
+                "type": "boolean"
+              }
+            }
           }
         }
       }
